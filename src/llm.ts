@@ -36,7 +36,9 @@ export function buildEnhanceMessages({ message, history, draft }: EnhanceInput):
         `Keep it silly, blunt and a little broken — do NOT turn it into a polished assistant answer. ` +
         `Fix factual errors (Indonesia's president is Prabowo Subianto since Oct 2024; Jokowi held 2014-2024). ` +
         `If the draft already works, return it nearly unchanged. ` +
-        `Reply with ONLY the rewritten text, no quotes, no explanation, no emoji spam.`,
+        `Your entire response must BE the reply: NEVER explain, describe, or narrate, NEVER start with "The user", ` +
+        `no quotes, no explanation, no emoji spam. ` +
+        `Example — User just said: tau wordle gak / Draft: Tau mabar / You reply: Tau dong, mabar gih.`,
     },
     {
       role: "user",
@@ -55,6 +57,27 @@ export function capWords(text: string): string {
   return words.slice(0, LLM_MAX_WORDS * 2).join(" ");
 }
 
+/** Remove leaked chain-of-thought blocks some providers inline into content. */
+export function stripThoughts(text: string): string {
+  return text
+    .replace(/<(think|thought|reasoning|analysis)>[\s\S]*?<\/\1>/gi, "")
+    .replace(/<(think|thought|reasoning|analysis)\/>/gi, "")
+    .trim();
+}
+
+/**
+ * Reject meta-commentary ("The user is asking…", "Here is…") that some
+ * models emit instead of the rewrite. Tight patterns only — a real Jev
+ * reply never talks about the user in third person or mentions drafts.
+ */
+export function looksLikeMeta(text: string): boolean {
+  const t = text.trim();
+  return (
+    /^(the user|user (is asking|said|wants)|here'?s|here is|analysis)/i.test(t) ||
+    /(the|your) (broken )?draft says?|as an ai|i('m| am) an ai|you asked me to/i.test(t)
+  );
+}
+
 /** Ordered candidate models from env. Pure — unit-testable via fresh import. */
 export function candidateModels(): string[] {
   return LLM_MODELS.split(",")
@@ -67,6 +90,7 @@ interface ChatPayload {
   messages: { role: "system" | "user"; content: string }[];
   temperature: number;
   max_tokens: number;
+  reasoning?: { exclude: boolean };
 }
 
 /** One attempt against one model. Returns text on success, null on any failure. */
@@ -103,13 +127,24 @@ export async function enhanceReply(input: EnhanceInput): Promise<string> {
     messages: buildEnhanceMessages(input),
     temperature: 0.7,
     max_tokens: 150,
+    // Keep chain-of-thought out of `content` on providers that support it.
+    reasoning: { exclude: true },
   };
   const models = candidateModels();
   if (models.length === 0) return input.draft;
   for (const model of models) {
     const result = await tryModel(model, payload);
     if ("text" in result) {
-      const final = capWords(result.text);
+      const cleaned = stripThoughts(result.text);
+      if (!cleaned) {
+        console.log(`${new Date().toISOString()} [jev] [LLM] ${model} returned only thoughts, next`);
+        continue;
+      }
+      if (looksLikeMeta(cleaned)) {
+        console.log(`${new Date().toISOString()} [jev] [LLM] ${model} narrated instead of replying, next`);
+        continue;
+      }
+      const final = capWords(cleaned);
       console.log(`${new Date().toISOString()} [jev] [LLM] model=${model}`);
       return final;
     }

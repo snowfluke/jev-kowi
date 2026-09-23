@@ -65,7 +65,7 @@ export const LLM_MODE = str("JEV_LLM_MODE", "enhance").toLowerCase();
  */
 export const LLM_MODELS = str(
   "JEV_LLM_MODELS",
-  "qwen/qwen3.8-27b:free,openai/gpt-oss-20b:free,google/gemma-4-26b-a4b-it:free,nvidia/nemotron-nano-9b-v2:free,openrouter/free",
+  "qwen/qwen3.8-27b:free,google/gemma-4-26b-a4b-it:free,google/gemma-4-31b-it:free,z-ai/glm-5.2:free,nvidia/nemotron-3-super-120b-a12b:free,openrouter/free",
 );
 export const LLM_API_URL = str("JEV_LLM_API_URL", "https://openrouter.ai/api/v1/chat/completions");
 export const LLM_MAX_WORDS = num("JEV_LLM_MAX_WORDS", 20);
