@@ -56,10 +56,9 @@ Send a follow-up while Jev is still thinking and the stale run is dropped — la
 Every reply (mention, reply, ambient) flows through the same five stages:
 
 1. **Pull 50** — recent channel history is fetched (humans plus Jev's own messages for reference; other bots excluded).
-2. **Jev picks 10** — one `choice` call ranks the pool by relevance to the current message; failures fall back to the 10 most recent.
-3. **Router writes 3** — three short candidates in Jev's voice (silly, blunt, broken, factual).
-4. **Jev ranks** — one `choice` call picks the winning reply; failures fall back to candidate zero.
-5. **Post** — the winner goes out as-is. Only when the router is fully down does the old word-by-word tournament run (capped at 12 words) as fallback — and Jev coherence-gates the draft first (salad scores ~0.06, good shorts ~0.96), so garbage posts `...` instead.
+2. **Jev picks 10** — one `choice` call ranks the pool by relevance to the current message; failures fall back to the 10 most recent. This is where Jev's reranking lives.
+3. **Router answers** — one direct reply from the ranked context, in Jev's voice (silly, blunt, broken, factual).
+4. **Post** — the answer goes out as-is. Only when the router is fully down does the old word-by-word tournament run (capped at 12 words) as fallback — and Jev coherence-gates the draft first (salad scores ~0.06, good shorts ~0.96), so garbage posts `...` instead.
 
 ## Ambient channel (optional)
 
@@ -71,15 +70,15 @@ Set `JEV_AMBIENT_CHANNEL_ID` to a channel ID and Jev will listen there unprompte
 
 Replies go through the same serialized pipeline, so ambient replies never overlap mention replies. An already-answered message is never answered twice.
 
-## Replies: LLM drafts, Jev ranks (on by default)
+## Replies: Jev reranks context, router answers (on by default)
 
-Word-by-word tournament sampling gave Jev its charm but degenerated past a few words (`netral neutral netral…`, the 100-word pantun spiral) — no penalty tuning fixes a generator stuck in synonym drift. So the jobs flipped: the router writes three short candidates in Jev's voice, Jev ranks them with one `choice` call, the winner posts as-is:
+Word-by-word tournament sampling gave Jev its charm but degenerated past a few words (`netral neutral netral…`, the 100-word pantun spiral) — and generating three candidate replies per message tripled output cost. So Jev's ranking moved to where it works best, the history: it picks the 10 relevant messages, the router answers once from them in Jev's voice, and that answer posts as-is:
 
 - `JEV_LLM_MODEL` (default `openrouter/free`) — OpenRouter routes it server-side to a currently-available free model. Set it only to pin a specific model.
 - `JEV_LLM_MAX_WORDS` (default 20) — per-candidate budget; output is defensively capped at 2x.
 - `JEV_LLM_MODE=off` — skip the router entirely and always use the tournament draft.
 
-The candidates prompt enforces voice and facts (silly, blunt, a little broken; Prabowo president since Oct 2024). The log shows each candidate plus the winner (`[CAND 0]…`, `[RANK] winner=1`). Router fully down → one capped 12-word tournament draft as fallback → `...` after that.
+The answer prompt enforces voice and facts (silly, blunt, a little broken; Prabowo president since Oct 2024). Router fully down → one capped 12-word tournament draft as fallback → `...` after that.
 
 Free-tier note: `:free` models are rate-limited (20 req/min; 50/day, or 1000/day after a one-time $10 credit purchase). When the router is exhausted the bot falls back to the draft, then silence — degraded, never broken.
 
@@ -113,7 +112,7 @@ Punctuation and digit tokens are injected automatically, so `vocab-id.txt` holds
 
 ## Cost
 
-~$0.01–0.05 per full tournament fallback via OpenRouter (~6 API calls per word). A normal reply costs one relevance call, one rank call, up to two ambient judgments, and one free router call — roughly $0.001. Indonesian replies cost a bit more when the tournament runs, since both 20K vocabs combine into a ~35K pool.
+~$0.001 per normal reply (one relevance call, up to two ambient judgments, one free router call). A full tournament fallback runs ~$0.01–0.05 (~6 API calls per word). Indonesian replies cost a bit more when the tournament runs, since both 20K vocabs combine into a ~35K pool.
 
 ## Vocab
 

@@ -117,11 +117,10 @@ async function tryModel(
 }
 
 /**
- * Build the candidates prompt. Pure — unit-testable.
- * The router writes short replies directly in Jev's voice; Jev itself
- * will rank them afterwards, so this prompt only demands voice + facts.
+ * Build the direct-answer prompt. Pure — unit-testable.
+ * The router answers in Jev's voice from Jev-ranked context.
  */
-export function buildCandidatesMessages(
+export function buildAnswerMessages(
   message: string,
   relevant: { author: string; mine: boolean; content: string }[],
 ): { role: "system" | "user"; content: string }[] {
@@ -133,10 +132,11 @@ export function buildCandidatesMessages(
       role: "system",
       content:
         `You are Jev, a chaotic Discord bot who talks broken ${langName}. ` +
-        `The user just said something below. Reply with EXACTLY 3 options, one per line, no numbering, no quotes, no explanation. ` +
-        `Each option: max ${LLM_MAX_WORDS} words, in ${langName}, silly, blunt and a little broken — never a polished assistant answer. ` +
+        `Answer the user's message below in max ${LLM_MAX_WORDS} words, in ${langName}. ` +
+        `Silly, blunt and a little broken — never a polished assistant answer. ` +
         `Fix factual errors (Indonesia's president is Prabowo Subianto since Oct 2024; Jokowi held 2014-2024). ` +
-        `Vary the three options: playful, blunt, absurd.`,
+        `Your entire response must BE the reply: NEVER explain, describe, or narrate, NEVER start with "The user", ` +
+        `no quotes, no explanation, no emoji spam.`,
     },
     {
       role: "user",
@@ -148,55 +148,39 @@ export function buildCandidatesMessages(
 }
 
 /**
- * Parse "one option per line" output into clean candidates. Pure.
- * Strips numbering, bullets, quotes; drops empties, overlong lines
- * and meta-commentary. Caps at 3.
+ * One direct answer via the free router. Returns "" on any failure
+ * (caller falls back to a Jev draft).
  */
-export function parseCandidates(text: string): string[] {
-  const out: string[] = [];
-  for (const raw of text.split("\n")) {
-    let line = raw
-      .trim()
-      .replace(/^(\d+[.)]\s*|[-*•]\s*)/, "")
-      .replace(/^["“”']+|["“”']+$/g, "")
-      .trim();
-    if (!line || looksLikeMeta(line)) continue;
-    out.push(capWords(line));
-    if (out.length >= 3) break;
-  }
-  return out;
-}
-
-/**
- * Generate up to 3 short reply candidates via the free router.
- * Returns [] on any failure (caller falls back to a Jev draft).
- */
-export async function llmCandidates(
+export async function llmAnswer(
   message: string,
   relevant: { author: string; mine: boolean; content: string }[],
   signal?: AbortSignal,
-): Promise<string[]> {
-  if (LLM_MODE === "off") return [];
+): Promise<string> {
+  if (LLM_MODE === "off") return "";
   const result = await tryModel(
     LLM_MODEL,
     {
-      messages: buildCandidatesMessages(message, relevant),
-      temperature: 0.8,
+      messages: buildAnswerMessages(message, relevant),
+      temperature: 0.7,
       // Generous: reasoning models burn budget thinking; thin budgets
       // come back as empty replies.
-      max_tokens: 350,
+      max_tokens: 250,
       reasoning: { exclude: true },
     },
     signal,
   );
   if ("error" in result) {
-    console.log(`${new Date().toISOString()} [jev] [LLM] candidates failed (${result.error})`);
-    return [];
+    console.log(`${new Date().toISOString()} [jev] [LLM] answer failed (${result.error})`);
+    return "";
   }
   const cleaned = stripThoughts(result.text);
-  const parsed = parseCandidates(cleaned);
-  console.log(`${new Date().toISOString()} [jev] [LLM] model=${LLM_MODEL} candidates=${parsed.length}`);
-  return parsed;
+  if (!cleaned || looksLikeMeta(cleaned)) {
+    console.log(`${new Date().toISOString()} [jev] [LLM] answer unusable, fallback to draft`);
+    return "";
+  }
+  const final = capWords(cleaned);
+  console.log(`${new Date().toISOString()} [jev] [LLM] model=${LLM_MODEL}`);
+  return final;
 }
 
 /**

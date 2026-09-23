@@ -1,7 +1,7 @@
 import { Client, Events, GatewayIntentBits, Partials, type Message } from "discord.js";
 import { AMBIENT_CHANNEL_ID, MAX_HISTORY, TOKEN, assertEnv } from "./config.ts";
-import { generateReply, rankReplies, type HistoryTurn } from "./jev.ts";
-import { enhanceReply, llmCandidates } from "./llm.ts";
+import { generateReply, type HistoryTurn } from "./jev.ts";
+import { enhanceReply, llmAnswer } from "./llm.ts";
 import { decideAmbient } from "./ambient.ts";
 import { RELEVANT_K, fetchChannelHistory, pickRelevant, toRelevant, type RelevantMsg } from "./context.ts";
 import { vocabSizes } from "./vocab.ts";
@@ -192,19 +192,10 @@ async function handleReply(
         .map((r): HistoryTurn => ({ role: "user", content: r.content || "hello" }));
       if (humans.length > 0) genHistory = humans;
     }
-    // 3. Router writes candidates in Jev's voice; Jev ranks them.
-    // Tournament draft is the outage fallback, capped short.
-    const candidates = await llmCandidates(content, relevant, signal);
-    let reply: string;
-    if (candidates.length > 0) {
-      for (const [i, c] of candidates.entries()) {
-        console.log(`${new Date().toISOString()} [jev] [CAND ${i}] ${c.slice(0, 120)}`);
-      }
-      const winner = await rankReplies(content, genHistory, candidates, signal);
-      const pick = winner >= 0 ? winner : 0;
-      console.log(`${new Date().toISOString()} [jev] [RANK] winner=${pick}`);
-      reply = candidates[pick]!;
-    } else {
+    // 3. Router answers from Jev-ranked context; tournament draft
+    // (coherence-gated) is the outage fallback.
+    let reply = await llmAnswer(content, relevant, signal);
+    if (!reply) {
       const draft = await withGenLock(() => generateReply(content, genHistory, signal, 12));
       reply = await enhanceReply({ message: content, history: genHistory, draft }, signal);
       if (reply !== draft) {

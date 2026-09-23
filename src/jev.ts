@@ -122,38 +122,6 @@ export async function askNoul(
 }
 
 /**
- * Rank full reply candidates with one choice call. Returns the winning
- * index, -1 on failure (caller falls back to candidates[0]).
- */
-export async function rankReplies(
-  message: string,
-  history: HistoryTurn[],
-  candidates: string[],
-  signal?: AbortSignal,
-): Promise<number> {
-  if (candidates.length === 0) return -1;
-  if (candidates.length === 1) return 0;
-  const turns = history.map((h) => `${h.role === "assistant" ? "Jev" : "User"}: ${h.content}`);
-  turns.push(`User just said: ${message}`);
-  const probs = await askChoice(
-    `${turns.join("\n")}\nWhich reply fits best?`,
-    "Pick the best reply.",
-    candidates.map((c, i) => ({ id: `c${i}`, label: c })),
-    signal,
-  );
-  let best = -1;
-  let bestScore = 0;
-  candidates.forEach((_, i) => {
-    const s = probs[`c${i}`] ?? 0;
-    if (s > bestScore) {
-      bestScore = s;
-      best = i;
-    }
-  });
-  return best;
-}
-
-/**
  * Single choice call over arbitrary options. Returns probabilities
  * keyed by option id, {} on failure (callers fall back).
  */
