@@ -170,22 +170,29 @@ export async function llmAnswer(
   for (let attempt = 0; attempt < 2; attempt++) {
     signal?.throwIfAborted();
     const result = await tryModel(LLM_MODEL, payload, signal);
-    if ("error" in result) {
-      console.log(
-        `${new Date().toISOString()} [jev] [LLM] answer failed (${result.error}, ${relevant.length} relevant)`,
-      );
-      return "";
+    if ("text" in result) {
+      const cleaned = stripThoughts(result.text);
+      if (cleaned && !looksLikeMeta(cleaned)) {
+        const final = capWords(cleaned);
+        console.log(`${new Date().toISOString()} [jev] [LLM] model=${LLM_MODEL}`);
+        return final;
+      }
     }
-    const cleaned = stripThoughts(result.text);
-    if (cleaned && !looksLikeMeta(cleaned)) {
-      const final = capWords(cleaned);
-      console.log(`${new Date().toISOString()} [jev] [LLM] model=${LLM_MODEL}`);
-      return final;
+    // Empty and unusable outputs retry (random backend per call);
+    // transport and HTTP errors fall through fast.
+    const why = "text" in result ? "unusable" : result.error;
+    if (why === "empty reply" || "text" in result) {
+      console.log(
+        `${new Date().toISOString()} [jev] [LLM] answer ${why} (attempt ${attempt + 1}/2, ${relevant.length} relevant), retrying`,
+      );
+      continue;
     }
     console.log(
-      `${new Date().toISOString()} [jev] [LLM] answer unusable (attempt ${attempt + 1}/2), retrying`,
+      `${new Date().toISOString()} [jev] [LLM] answer failed (${why}, ${relevant.length} relevant)`,
     );
+    return "";
   }
+  console.log(`${new Date().toISOString()} [jev] [LLM] answer still unusable, fallback to draft`);
   return "";
 }
 
