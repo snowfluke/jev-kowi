@@ -57,16 +57,11 @@ export const AMBIENT_THRESHOLD = num("JEV_AMBIENT_THRESHOLD", 0.5);
  */
 export const LLM_MODE = str("JEV_LLM_MODE", "enhance").toLowerCase();
 /**
- * Ordered fallback chain, comma-separated. Each model is tried once;
- * any failure (ended, rate-limited, provider down, empty reply) moves
- * to the next. Keep `openrouter/free` last — OpenRouter itself routes
- * it to a currently-available free model, so the bot self-sustains
- * with zero env changes when individual free models die.
+ * Optional manual pin, comma-separated (e.g. "qwen/qwen3.8-27b:free").
+ * Empty (default) = self-sustaining mode: free chat models are
+ * auto-discovered from OpenRouter's live catalog, cached hourly.
  */
-export const LLM_MODELS = str(
-  "JEV_LLM_MODELS",
-  "qwen/qwen3.8-27b:free,google/gemma-4-26b-a4b-it:free,google/gemma-4-31b-it:free,z-ai/glm-5.2:free,nvidia/nemotron-3-super-120b-a12b:free,openrouter/free",
-);
+export const LLM_MODELS = str("JEV_LLM_MODELS", "");
 export const LLM_API_URL = str("JEV_LLM_API_URL", "https://openrouter.ai/api/v1/chat/completions");
 export const LLM_MAX_WORDS = num("JEV_LLM_MAX_WORDS", 20);
 

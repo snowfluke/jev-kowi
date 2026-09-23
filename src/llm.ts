@@ -78,11 +78,127 @@ export function looksLikeMeta(text: string): boolean {
   );
 }
 
-/** Ordered candidate models from env. Pure — unit-testable via fresh import. */
+/** Ordered candidate models from env pin, if set. */
 export function candidateModels(): string[] {
   return LLM_MODELS.split(",")
     .map((m) => m.trim())
     .filter((m) => m !== "");
+}
+
+// --- Live catalog auto-discovery (self-sustaining mode) ---
+
+const CATALOG_URL = "https://openrouter.ai/api/v1/models";
+const CATALOG_TTL_MS = 3_600_000;
+const MAX_ATTEMPTS = 5;
+
+interface CatalogModel {
+  id: string;
+  name?: string;
+  context_length?: number;
+  architecture?: { modality?: string };
+}
+
+const JUNK = /transcrib|tts|embed|rerank|safety|moderat|guard|lyria|music|audio|vision|ocr|poolside|\bcode\b/i;
+
+// Vendors, not model IDs: vendors are stable while free IDs rotate.
+// Unknown vendors still work, they just sort after known generalists.
+const VENDOR_RANK = [
+  "qwen",
+  "google",
+  "z-ai",
+  "meta-llama",
+  "mistralai",
+  "deepseek",
+  "openai",
+  "microsoft",
+  "nvidia",
+  "cohere",
+  "anthropic",
+  "x-ai",
+];
+
+function vendorRank(id: string): number {
+  const i = VENDOR_RANK.indexOf(id.split("/")[0]!.toLowerCase());
+  return i === -1 ? VENDOR_RANK.length : i;
+}
+
+/**
+ * Pick free chat models from a catalog payload. Pure — unit-testable.
+ * Keeps text-in/text-out models, drops audio/image/embedding/safety/
+ * code-specialized ones, prefers pure-text non-reasoning models with
+ * larger context first. `openrouter/free` (the router itself) goes last
+ * as the final catch-all.
+ */
+export function selectFreeChatModels(catalog: { data?: CatalogModel[] }): string[] {
+  const scored: { id: string; pure: number; vendor: number; reasoning: number; ctx: number }[] = [];
+  for (const m of catalog.data ?? []) {
+    if (!m.id.endsWith(":free") || m.id === "openrouter/free") continue;
+    const modality = m.architecture?.modality ?? "";
+    if (!modality.startsWith("text") || !modality.includes("->text")) continue;
+    if (JUNK.test(`${m.id} ${m.name ?? ""}`)) continue;
+    scored.push({
+      id: m.id,
+      pure: modality === "text->text" ? 0 : 1,
+      vendor: vendorRank(m.id),
+      reasoning: /reasoning/i.test(m.id) ? 1 : 0,
+      ctx: m.context_length ?? 0,
+    });
+  }
+  scored.sort(
+    (a, b) =>
+      a.vendor - b.vendor ||
+      a.pure - b.pure ||
+      a.reasoning - b.reasoning ||
+      b.ctx - a.ctx ||
+      (a.id < b.id ? -1 : 1),
+  );
+  const ids = scored.map((s) => s.id);
+  ids.push("openrouter/free");
+  return ids;
+}
+
+let catalogCache: { models: string[]; at: number } | null = null;
+let catalogInflight: Promise<string[]> | null = null;
+
+async function fetchCatalog(): Promise<string[]> {
+  const res = await fetch(CATALOG_URL, { signal: AbortSignal.timeout(20_000) });
+  if (res.status >= 400) throw new Error(`catalog status ${res.status}`);
+  const json = (await res.json()) as { data?: CatalogModel[] };
+  return selectFreeChatModels(json);
+}
+
+/** Hourly-cached free model list; stale cache survives fetch failures. */
+export async function freeChatModels(): Promise<string[]> {
+  const now = Date.now();
+  if (catalogCache && now - catalogCache.at < CATALOG_TTL_MS) return catalogCache.models;
+  if (!catalogInflight) {
+    catalogInflight = fetchCatalog()
+      .catch((e) => {
+        console.log(`${new Date().toISOString()} [jev] [LLM] catalog refresh failed: ${String(e).split("\n")[0]}`);
+        return catalogCache?.models ?? [];
+      })
+      .finally(() => {
+        catalogInflight = null;
+      });
+  }
+  const models = await catalogInflight;
+  // Cache even an empty list briefly? No — empty means failure; keep old
+  // cache if any, else callers fall back to the raw draft.
+  if (models.length > 0) catalogCache = { models, at: now };
+  return models;
+}
+
+/** Test hook: reset module cache state. */
+export function _resetCatalogCache(): void {
+  catalogCache = null;
+  catalogInflight = null;
+}
+
+/** Resolve candidates: manual env pin wins, else the cached catalog. */
+export async function resolveModels(): Promise<string[]> {
+  const pinned = candidateModels();
+  if (pinned.length > 0) return pinned;
+  return freeChatModels();
 }
 
 interface ChatPayload {
@@ -130,9 +246,12 @@ export async function enhanceReply(input: EnhanceInput): Promise<string> {
     // Keep chain-of-thought out of `content` on providers that support it.
     reasoning: { exclude: true },
   };
-  const models = candidateModels();
-  if (models.length === 0) return input.draft;
-  for (const model of models) {
+  const models = await resolveModels();
+  if (models.length === 0) {
+    console.log(`${new Date().toISOString()} [jev] [LLM] no candidates, keeping draft`);
+    return input.draft;
+  }
+  for (const model of models.slice(0, MAX_ATTEMPTS)) {
     const result = await tryModel(model, payload);
     if ("text" in result) {
       const cleaned = stripThoughts(result.text);

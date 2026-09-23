@@ -53,7 +53,7 @@ Mention jev or reply to jev's messages. Replies only — it won't respond to mes
 
 Tournament sampling gives Jev its charm but also its incoherence (`2 jokowi 2`). After Jev drafts a reply, a chat model rewrites it — short, same language, still silly and a little broken, but coherent and factually fixed:
 
-- `JEV_LLM_MODELS` — ordered fallback chain (default: qwen → gemma 26b → gemma 31b → glm → nemotron super → `openrouter/free`). Each model is tried once; any failure (model ended, 429 rate-limit, provider down, empty reply, leaked reasoning, narration instead of a reply) moves to the next. `openrouter/free` routes itself to a currently-available free model, so the bot self-sustains with zero env changes when individual free models die. (IDs verified against the live catalog; free lists rotate, so re-check if fallbacks start 404ing.)
+- `JEV_LLM_MODELS` — optional manual pin (comma-separated). Leave unset and the bot discovers free chat models itself from OpenRouter's live catalog, cached hourly: text-in/text-out `:free` models, junk categories (audio, embedding, safety, code-only) filtered out, generalist vendors first, `openrouter/free` last as the catch-all. Up to 5 tried per reply; any failure (ended, 429, provider down, empty, reasoning leak, narration) moves on. Nothing to update when free models rotate.
 - `JEV_LLM_MAX_WORDS` (default 20) — the rewrite budget; output is defensively capped at 2x.
 - `JEV_LLM_MODE=off` — skip the LLM entirely and send Jev's raw draft.
 
