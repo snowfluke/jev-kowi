@@ -66,15 +66,21 @@ export function stripThoughts(text: string): string {
 }
 
 /**
- * Reject meta-commentary ("The user is asking…", "Here is…") that some
- * models emit instead of the rewrite. Tight patterns only — a real Jev
- * reply never talks about the user in third person or mentions drafts.
+ * Reject meta-commentary ("The user is asking…", "Here is…"), safety
+ * verdicts ("User Safety: safe") and refusals that some routed models
+ * emit instead of the rewrite. Tight patterns only — a real Jev reply
+ * never talks about the user in third person, mentions drafts or
+ * policies, or opens with "I can't".
  */
 export function looksLikeMeta(text: string): boolean {
   const t = text.trim();
   return (
     /^(the user|user (is asking|said|wants)|here'?s|here is|analysis)/i.test(t) ||
-    /(the|your) (broken )?draft says?|as an ai|i('m| am) an ai|you asked me to/i.test(t)
+    /(the|your) (broken )?draft says?|as an ai|i('m| am) an ai|you asked me to/i.test(t) ||
+    /user safety|content (policy|moderation|guidelines?)|safety (verdict|assessment|check|filter|label)/i.test(
+      t,
+    ) ||
+    /^(i can'?t|i cannot|i am unable|i'm unable|unable to comply)/i.test(t)
   );
 }
 
