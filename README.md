@@ -53,8 +53,8 @@ Mention jev or reply to jev's messages. Replies only — it won't respond to mes
 
 Tournament sampling gives Jev its charm but also its incoherence (`2 jokowi 2`). After Jev drafts a reply, a chat model rewrites it — short, same language, still silly and a little broken, but coherent and factually fixed:
 
-- `JEV_LLM_MODELS` — optional manual pin (comma-separated). Leave unset and the bot discovers free chat models itself from OpenRouter's live catalog, cached hourly: text-in/text-out `:free` models, junk categories (audio, embedding, safety, code-only) filtered out, generalist vendors first, `openrouter/free` last as the catch-all. Up to 5 tried per reply; any failure (ended, 429, provider down, empty, reasoning leak, narration) moves on. Nothing to update when free models rotate.
-- `JEV_LLM_MAX_WORDS` (default 20) — the rewrite budget; output is defensively capped at 2x.
+- `JEV_LLM_MODELS` — optional manual pin (comma-separated). Leave unset and the bot discovers free chat models itself from OpenRouter's live catalog, cached hourly: text-in/text-out `:free` models, junk categories (audio, embedding, safety, code-only) filtered out, generalist vendors first, `openrouter/free` last as the catch-all. First 4 candidates plus the router as the guaranteed final attempt; any failure (ended, 429, provider down, empty, reasoning leak, narration) moves on. Nothing to update when free models rotate.
+- `JEV_LLM_MAX_WORDS` (default 20) — the rewrite budget; output is defensively capped at 2x, and drafts aren't generated past 2x either, so keep `JEV_MAX_WORDS` at 30–40 when enhancement is on. Longer only burns minutes and money on words the rewriter cuts.
 - `JEV_LLM_MODE=off` — skip the LLM entirely and send Jev's raw draft.
 
 The prompt tells the model to keep Jev's voice and only fix what's wrong (e.g. Indonesia's president is Prabowo since Oct 2024, not Jokowi). Any LLM failure fails safe to the raw draft, and the log shows which model answered plus both texts (`[LLM] model=…`, `[LLM] draft="…" final="…"`).

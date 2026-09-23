@@ -201,6 +201,17 @@ export async function resolveModels(): Promise<string[]> {
   return freeChatModels();
 }
 
+/**
+ * Order one reply's attempts: deduped candidates first, the
+ * `openrouter/free` router always last so the catch-all is reachable
+ * even under the attempt cap. Pure — unit-testable.
+ */
+export function orderAttempts(models: string[]): string[] {
+  const deduped = [...new Set(models)];
+  const rest = deduped.filter((m) => m !== "openrouter/free");
+  return [...rest.slice(0, MAX_ATTEMPTS - 1), "openrouter/free"];
+}
+
 interface ChatPayload {
   model: string;
   messages: { role: "system" | "user"; content: string }[];
@@ -246,12 +257,12 @@ export async function enhanceReply(input: EnhanceInput): Promise<string> {
     // Keep chain-of-thought out of `content` on providers that support it.
     reasoning: { exclude: true },
   };
-  const models = await resolveModels();
+  const models = orderAttempts(await resolveModels());
   if (models.length === 0) {
     console.log(`${new Date().toISOString()} [jev] [LLM] no candidates, keeping draft`);
     return input.draft;
   }
-  for (const model of models.slice(0, MAX_ATTEMPTS)) {
+  for (const model of models) {
     const result = await tryModel(model, payload);
     if ("text" in result) {
       const cleaned = stripThoughts(result.text);

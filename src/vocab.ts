@@ -82,12 +82,14 @@ const ID_MARKERS = new Set(
     "udah belum gimana kenapa siapa apa kabar terima kasih tolong maaf permisi halo " +
     "dong sih aja kok nih tuh deh yuk ayo banget sekali lagi masih pernah jangan harus " +
     "perlu boleh dapat mau tahu tau lihat dengar bilang kata orang hari malam pagi sore " +
-    "rumah makan minum tidur kerja main anak ibu bapak adik kakak teman pacar sayang " +
+    "rumah makan minum tidur kerja anak ibu bapak adik kakak teman pacar sayang " +
     "cinta benci rindu kangen senang sedih marah takut capek lelah lapar haus sakit " +
     "sehat gila bodoh pintar cantik ganteng jelek bagus jelek mahal murah besar kecil " +
     "panjang pendek tinggi rendah jauh dekat lama cepat lambat baru lama panas dingin " +
     "hujan terang gelap ramai sepi bersih kotor penuh kosong mudah susah sulit gampang " +
-    "benar salah baik buruk jahat jujur bohong janji sumpah doa tuhan allah makasih ya ga"
+    "benar salah baik buruk jahat jujur bohong janji sumpah doa tuhan allah makasih ya ga " +
+    "buat minta coba bikin kasih beli jual bayar nonton denger liat ngomong cerita pantun " +
+    "gini gitu trus yg dgn utk bgt jg udh blm gmn knp skrg skrng besok bsk gw elu loe"
   ).split(/\s+/),
 );
 

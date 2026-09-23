@@ -3,6 +3,8 @@ import {
   CONTENT_PENALTY,
   CONTENT_PENALTY_CAP,
   END,
+  LLM_MAX_WORDS,
+  LLM_MODE,
   MAX_CHOICES,
   MAX_WORDS,
   MIN_WORDS,
@@ -130,6 +132,19 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
+/** Raw probability at which a repeat becomes a loop attractor. Penalties
+ *  can't divide fast-growing loop confidence (seen: nanas 62% after one
+ *  use), so attractors are banned outright for the step instead. */
+export const ATTRACTOR_PROB = 0.45;
+
+/** A reply this long means the loop breaker failed — never post the mess. */
+export const DRAFT_HARD_CAP = 60;
+
+/** True when a high-confidence repeat would lock generation into a loop. */
+export function isAttractor(word: string, prob: number, reply: string[]): boolean {
+  return word !== END && prob >= ATTRACTOR_PROB && reply.includes(word);
+}
+
 /** One tournament round: buckets -> finalists -> runoff winner probabilities. */
 async function nextWord(
   state: string,
@@ -169,12 +184,19 @@ async function nextWord(
   return { probs, complete };
 }
 
-export async function generateReply(message: string, history: HistoryTurn[] = []): Promise<string> {
+export async function generateReply(
+  message: string,
+  history: HistoryTurn[] = [],
+): Promise<string> {
   const lang: Language = resolveLanguage(message);
   const vocab = buildVocabulary(message, lang);
   const words: string[] = [];
 
-  for (let step = 0; step < MAX_WORDS; step++) {
+  // Words past twice the rewrite budget are cut by the enhancer anyway —
+  // don't burn tournament calls (minutes + money) generating them.
+  const genMax = LLM_MODE === "enhance" ? Math.min(MAX_WORDS, LLM_MAX_WORDS * 2) : MAX_WORDS;
+
+  for (let step = 0; step < genMax; step++) {
     const turns: string[] = [];
     if (lang === "id") turns.push("(Reply in Indonesian, matching the user's language.)");
     for (const h of history) {
@@ -199,6 +221,10 @@ export async function generateReply(message: string, history: HistoryTurn[] = []
       if (p <= 0) continue;
       if (NO_SPACE_BEFORE.has(w) && words[words.length - 1] === w) continue;
       if (w === END && !stoppable) continue;
+      if (isAttractor(w, p, words)) {
+        log(`[jev] attractor ban: ${w} at ${(p * 100).toFixed(0)}%`);
+        continue;
+      }
       scored[w] = p / penalty(words, w);
     }
     if (Object.keys(scored).length === 0) break;
@@ -215,5 +241,9 @@ export async function generateReply(message: string, history: HistoryTurn[] = []
     words.push(word);
   }
 
+  if (words.length > DRAFT_HARD_CAP) {
+    log(`[jev] draft exceeded hard cap (${words.length}), dropping`);
+    return "...";
+  }
   return words.length > 0 ? render(words) : "...";
 }
