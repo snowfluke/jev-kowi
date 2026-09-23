@@ -182,7 +182,9 @@ export async function llmCandidates(
     {
       messages: buildCandidatesMessages(message, relevant),
       temperature: 0.8,
-      max_tokens: 200,
+      // Generous: reasoning models burn budget thinking; thin budgets
+      // come back as empty replies.
+      max_tokens: 350,
       reasoning: { exclude: true },
     },
     signal,
@@ -206,7 +208,7 @@ export async function llmCandidates(
   const payload = {
     messages: buildEnhanceMessages(input),
     temperature: 0.7,
-    max_tokens: 150,
+    max_tokens: 250,
     // Keep chain-of-thought out of `content` on providers that support it.
     reasoning: { exclude: true },
   };

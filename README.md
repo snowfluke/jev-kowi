@@ -59,7 +59,7 @@ Every reply (mention, reply, ambient) flows through the same five stages:
 2. **Jev picks 10** — one `choice` call ranks the pool by relevance to the current message; failures fall back to the 10 most recent.
 3. **Router writes 3** — three short candidates in Jev's voice (silly, blunt, broken, factual).
 4. **Jev ranks** — one `choice` call picks the winning reply; failures fall back to candidate zero.
-5. **Post** — the winner goes out as-is. Only when the router is fully down does the old word-by-word tournament run (capped at 12 words) as fallback.
+5. **Post** — the winner goes out as-is. Only when the router is fully down does the old word-by-word tournament run (capped at 12 words) as fallback — and Jev coherence-gates the draft first (salad scores ~0.06, good shorts ~0.96), so garbage posts `...` instead.
 
 ## Ambient channel (optional)
 

@@ -203,6 +203,12 @@ export const ATTRACTOR_PROB = 0.45;
 /** A reply this long means the loop breaker failed — never post the mess. */
 export const DRAFT_HARD_CAP = 60;
 
+/** Drafts longer than this get a coherence check before posting. */
+export const DRAFT_GATE_WORDS = 4;
+
+/** Minimum coherence score for a draft to post as-is. */
+export const DRAFT_COHERENCE_MIN = 0.5;
+
 /** True when a high-confidence repeat would lock generation into a loop. */
 export function isAttractor(word: string, prob: number, reply: string[]): boolean {
   return word !== END && prob >= ATTRACTOR_PROB && reply.includes(word);
@@ -316,5 +322,18 @@ export async function generateReply(
     log(`[jev] draft exceeded hard cap (${words.length}), dropping`);
     return "...";
   }
-  return words.length > 0 ? render(words) : "...";
+  if (words.length === 0) return "...";
+  const draft = render(words);
+  if (words.length > DRAFT_GATE_WORDS) {
+    // Jev judges its own draft: salad never posts, "..." does.
+    // Fail-closed — a dead judge still beats a 40-word mess.
+    const score = await askNoul(
+      `User just said: ${message}\nDraft reply: ${draft}`,
+      "Is the draft a coherent reply a human might send? Short slangy replies are fine; word salad and endless repeats are not.",
+      signal,
+    );
+    log(`[jev] [DRAFT] coherence=${score.toFixed(2)} ${score >= DRAFT_COHERENCE_MIN ? "keep" : "reject"}`);
+    if (score < DRAFT_COHERENCE_MIN) return "...";
+  }
+  return draft;
 }
