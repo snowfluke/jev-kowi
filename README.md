@@ -55,9 +55,9 @@ Send a follow-up while Jev is still thinking and the stale run is dropped — la
 
 Every reply (mention, reply, ambient) flows through the same five stages:
 
-1. **Pull 50** — recent channel history is fetched (humans plus Jev's own messages for reference; other bots excluded).
+1. **Pull 50** — recent channel history is fetched (humans plus Jev's own messages for reference; other bots excluded). A usermap (username, display name, id) is built from the active speakers — no extra calls, no privileged intents.
 2. **Jev picks 10** — one `choice` call ranks the pool by relevance to the current message; failures fall back to the 10 most recent. This is where Jev's reranking lives.
-3. **Router answers** — one direct reply from the ranked context, in Jev's voice (silly, blunt, broken, factual). Retried once on empty output, since the router serves a random backend per call.
+3. **Router answers** — one direct reply from the ranked context, in Jev's voice (silly, blunt, broken, factual). It knows the usermap, so it can mention people with `<@id>`; unknown or invented IDs are stripped before sending, and `@username` is linked to the mapped ID. Retried once on empty output, since the router serves a random backend per call.
 4. **Post** — the answer goes out as-is. Only when the router is fully down does the old word-by-word tournament run (capped at 12 words) as fallback — and Jev coherence-gates the draft first (salad scores ~0.06, good shorts ~0.96), so garbage posts `...` instead.
 
 ## Ambient channel (optional)
@@ -141,7 +141,7 @@ All tuning constants (`JEV_MAX_WORDS`, `JEV_STOP_THRESHOLD`, penalties, …) can
 
 - By default the bot only reads messages that mention it or reply to it. Nothing else is read or stored.
 - If `JEV_AMBIENT_CHANNEL_ID` is set, the bot additionally reads recent non-bot messages in that one channel to decide whether the latest message is addressed to it. No other channel is ever scanned.
-- Mention/reply/ambient content is kept in memory (last 3 user messages per channel) to build conversational context, and is wiped on restart. It is never written to disk, never sold, and never shared except as follows.
+- Mention/reply/ambient content is kept in memory (last 3 user messages per channel) to build conversational context, and is wiped on restart. The per-reply usermap (usernames, display names, IDs of active speakers) is derived from the same fetched messages and never stored. Nothing is written to disk, never sold, and never shared except as follows.
 - To generate a reply, your message plus recent context is sent to OpenRouter (`~typesafe/jev-latest` for the draft, plus the free router model for the rewrite). OpenRouter's own privacy policy and retention apply to those requests.
 - No analytics, no tracking, no DMs unless you message the bot first. Ask the operator to wipe in-memory history any time.
 

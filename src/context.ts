@@ -13,6 +13,34 @@ export interface RelevantMsg {
   createdTimestamp: number;
 }
 
+export interface UserMapEntry {
+  username: string;
+  name: string;
+  id: string;
+}
+
+/**
+ * Who's talking: username, display name and id per human speaker,
+ * most recent first, capped. Built from already-fetched history —
+ * no extra API calls, no privileged intents. Pure — unit-testable.
+ */
+export function buildUserMap(msgs: Message[], selfId?: string): UserMapEntry[] {
+  const seen = new Set<string>();
+  const out: UserMapEntry[] = [];
+  for (const m of [...msgs].reverse()) {
+    if (m.author.bot || seen.has(m.author.id)) continue;
+    if (m.author.id === selfId) continue;
+    seen.add(m.author.id);
+    out.push({
+      username: m.author.username,
+      name: m.member?.displayName ?? m.author.username,
+      id: m.author.id,
+    });
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+
 /**
  * Fetch recent channel history, oldest-first. Keeps humans and Jev's own
  * messages (references like "lanjut" need them); drops other bots.

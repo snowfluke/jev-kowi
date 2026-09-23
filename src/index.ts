@@ -3,7 +3,8 @@ import { AMBIENT_CHANNEL_ID, MAX_HISTORY, TOKEN, assertEnv } from "./config.ts";
 import { generateReply, type HistoryTurn } from "./jev.ts";
 import { enhanceReply, llmAnswer } from "./llm.ts";
 import { decideAmbient } from "./ambient.ts";
-import { RELEVANT_K, fetchChannelHistory, pickRelevant, toRelevant, type RelevantMsg } from "./context.ts";
+import { RELEVANT_K, buildUserMap, fetchChannelHistory, pickRelevant, toRelevant, type RelevantMsg } from "./context.ts";
+import { normalizeMentions } from "./llm.ts";
 import { vocabSizes } from "./vocab.ts";
 
 assertEnv();
@@ -184,6 +185,7 @@ async function handleReply(
     let genHistory = history;
     let relevant: RelevantMsg[] = [];
     const pool = await fetchChannelHistory(m.channel, m.client.user?.id, m.id);
+    const usermap = pool ? buildUserMap(pool, m.client.user?.id) : [];
     if (pool && pool.length > 0) {
       relevant = await pickRelevant(content, toRelevant(pool, m.client.user?.id), RELEVANT_K, signal);
       const humans = relevant
@@ -194,7 +196,7 @@ async function handleReply(
     }
     // 3. Router answers from Jev-ranked context; tournament draft
     // (coherence-gated) is the outage fallback.
-    let reply = await llmAnswer(content, relevant, signal);
+    let reply = await llmAnswer(content, relevant, signal, usermap);
     if (!reply) {
       const draft = await withGenLock(() => generateReply(content, genHistory, signal, 12));
       reply = await enhanceReply({ message: content, history: genHistory, draft }, signal);
@@ -202,12 +204,13 @@ async function handleReply(
         console.log(`${new Date().toISOString()} [jev] [LLM] draft="${draft}" final="${reply}"`);
       }
     }
+    reply = normalizeMentions(reply, usermap);
     console.log(`${new Date().toISOString()} [jev] [OUT] ${reply}`);
     if (signal.aborted) {
       console.log(`${new Date().toISOString()} [jev] [DROP] aborted before send, no reply`);
       return;
     }
-    await m.reply({ content: reply, allowedMentions: { repliedUser: false } });
+    await m.reply({ content: reply, allowedMentions: { repliedUser: false, parse: ["users"] } });
   } catch (e) {
     if (signal.aborted) {
       console.log(`${new Date().toISOString()} [jev] [DROP] superseded by newer message, no reply`);

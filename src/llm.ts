@@ -129,10 +129,17 @@ async function tryModel(
 export function buildAnswerMessages(
   message: string,
   relevant: { author: string; mine: boolean; content: string }[],
+  users: { username: string; name: string; id: string }[] = [],
 ): { role: "system" | "user"; content: string }[] {
   const lang = resolveLanguage(message);
   const langName = lang === "id" ? "Indonesian" : "English";
   const lines = relevant.map((r) => `${r.mine ? "Jev" : r.author}: ${r.content}`).join("\n");
+  const roster =
+    users.length > 0
+      ? `People here (mention with <@id> exactly, only these people):\n` +
+        users.map((u) => `- ${u.username} (${u.name}): <@${u.id}>`).join("\n") +
+        `\n`
+      : "";
   return [
     {
       role: "system",
@@ -141,6 +148,10 @@ export function buildAnswerMessages(
         `Answer the user's message below in max ${LLM_MAX_WORDS} words, in ${langName}. ` +
         `Silly, blunt and a little broken — never a polished assistant answer. ` +
         `Fix factual errors (Indonesia's president is Prabowo Subianto since Oct 2024; Jokowi held 2014-2024). ` +
+        (roster
+          ? `To mention someone, write their <@id> exactly as listed. Only mention listed people, never invent IDs. ` +
+            roster
+          : "") +
         `Your entire response must BE the reply: NEVER explain, describe, or narrate, NEVER start with "The user", ` +
         `no quotes, no explanation, no emoji spam.`,
     },
@@ -154,6 +165,25 @@ export function buildAnswerMessages(
 }
 
 /**
+ * Fix up mentions in a reply: @username becomes <@id> for known users,
+ * unknown <@id> tokens are dropped (never let it ping strangers or
+ * hallucinated IDs). Pure — unit-testable.
+ */
+export function normalizeMentions(
+  text: string,
+  users: { username: string; name: string; id: string }[],
+): string {
+  let out = text;
+  for (const u of users) {
+    const esc = u.username.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(`@${esc}(?![\\w.])`, "g"), `<@${u.id}>`);
+  }
+  const known = new Set(users.map((u) => u.id));
+  out = out.replace(/<@!?(\d+)>/g, (m, id: string) => (known.has(id) ? `<@${id}>` : ""));
+  return out.replace(/[ \t]{2,}/g, " ").trim();
+}
+
+/**
  * One direct answer via the free router. Retries once on empty —
  * the router serves a random backend per call, so a one-off flake
  * (burnt thinking budget, hiccup) usually clears on the second try.
@@ -163,10 +193,11 @@ export async function llmAnswer(
   message: string,
   relevant: { author: string; mine: boolean; content: string }[],
   signal?: AbortSignal,
+  users: { username: string; name: string; id: string }[] = [],
 ): Promise<string> {
   if (LLM_MODE === "off") return "";
   const payload = {
-    messages: buildAnswerMessages(message, relevant),
+    messages: buildAnswerMessages(message, relevant, users),
     temperature: 0.7,
     // Generous: reasoning models burn budget thinking; thin budgets
     // come back as empty replies.
