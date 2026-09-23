@@ -57,7 +57,7 @@ Every reply (mention, reply, ambient) flows through the same five stages:
 
 1. **Pull 50** — recent channel history is fetched (humans plus Jev's own messages for reference; other bots excluded).
 2. **Jev picks 10** — one `choice` call ranks the pool by relevance to the current message; failures fall back to the 10 most recent. This is where Jev's reranking lives.
-3. **Router answers** — one direct reply from the ranked context, in Jev's voice (silly, blunt, broken, factual).
+3. **Router answers** — one direct reply from the ranked context, in Jev's voice (silly, blunt, broken, factual). Retried once on empty output, since the router serves a random backend per call.
 4. **Post** — the answer goes out as-is. Only when the router is fully down does the old word-by-word tournament run (capped at 12 words) as fallback — and Jev coherence-gates the draft first (salad scores ~0.06, good shorts ~0.96), so garbage posts `...` instead.
 
 ## Ambient channel (optional)

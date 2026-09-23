@@ -148,8 +148,10 @@ export function buildAnswerMessages(
 }
 
 /**
- * One direct answer via the free router. Returns "" on any failure
- * (caller falls back to a Jev draft).
+ * One direct answer via the free router. Retries once on empty —
+ * the router serves a random backend per call, so a one-off flake
+ * (burnt thinking budget, hiccup) usually clears on the second try.
+ * Returns "" if both fail (caller falls back to a Jev draft).
  */
 export async function llmAnswer(
   message: string,
@@ -157,30 +159,34 @@ export async function llmAnswer(
   signal?: AbortSignal,
 ): Promise<string> {
   if (LLM_MODE === "off") return "";
-  const result = await tryModel(
-    LLM_MODEL,
-    {
-      messages: buildAnswerMessages(message, relevant),
-      temperature: 0.7,
-      // Generous: reasoning models burn budget thinking; thin budgets
-      // come back as empty replies.
-      max_tokens: 250,
-      reasoning: { exclude: true },
-    },
-    signal,
-  );
-  if ("error" in result) {
-    console.log(`${new Date().toISOString()} [jev] [LLM] answer failed (${result.error})`);
-    return "";
+  const payload = {
+    messages: buildAnswerMessages(message, relevant),
+    temperature: 0.7,
+    // Generous: reasoning models burn budget thinking; thin budgets
+    // come back as empty replies.
+    max_tokens: 400,
+    reasoning: { exclude: true },
+  };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    signal?.throwIfAborted();
+    const result = await tryModel(LLM_MODEL, payload, signal);
+    if ("error" in result) {
+      console.log(
+        `${new Date().toISOString()} [jev] [LLM] answer failed (${result.error}, ${relevant.length} relevant)`,
+      );
+      return "";
+    }
+    const cleaned = stripThoughts(result.text);
+    if (cleaned && !looksLikeMeta(cleaned)) {
+      const final = capWords(cleaned);
+      console.log(`${new Date().toISOString()} [jev] [LLM] model=${LLM_MODEL}`);
+      return final;
+    }
+    console.log(
+      `${new Date().toISOString()} [jev] [LLM] answer unusable (attempt ${attempt + 1}/2), retrying`,
+    );
   }
-  const cleaned = stripThoughts(result.text);
-  if (!cleaned || looksLikeMeta(cleaned)) {
-    console.log(`${new Date().toISOString()} [jev] [LLM] answer unusable, fallback to draft`);
-    return "";
-  }
-  const final = capWords(cleaned);
-  console.log(`${new Date().toISOString()} [jev] [LLM] model=${LLM_MODEL}`);
-  return final;
+  return "";
 }
 
 /**
