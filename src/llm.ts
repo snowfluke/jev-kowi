@@ -1,4 +1,4 @@
-import { LLM_API_URL, LLM_MAX_WORDS, LLM_MODE, LLM_MODEL, OPENROUTER_KEY } from "./config.ts";
+import { LLM_API_URL, LLM_MAX_WORDS, LLM_MODE, LLM_MODELS, OPENROUTER_KEY } from "./config.ts";
 import type { HistoryTurn } from "./jev.ts";
 import { resolveLanguage } from "./vocab.ts";
 
@@ -55,12 +55,22 @@ export function capWords(text: string): string {
   return words.slice(0, LLM_MAX_WORDS * 2).join(" ");
 }
 
-/**
- * Rewrite Jev's draft via the configured chat model.
- * Fail-safe: any error returns the raw draft unchanged.
- */
-export async function enhanceReply(input: EnhanceInput): Promise<string> {
-  if (LLM_MODE === "off") return input.draft;
+/** Ordered candidate models from env. Pure — unit-testable via fresh import. */
+export function candidateModels(): string[] {
+  return LLM_MODELS.split(",")
+    .map((m) => m.trim())
+    .filter((m) => m !== "");
+}
+
+interface ChatPayload {
+  model: string;
+  messages: { role: "system" | "user"; content: string }[];
+  temperature: number;
+  max_tokens: number;
+}
+
+/** One attempt against one model. Returns text on success, null on any failure. */
+async function tryModel(model: string, payload: Omit<ChatPayload, "model">): Promise<{ text: string } | { error: string }> {
   try {
     const res = await fetch(LLM_API_URL, {
       method: "POST",
@@ -68,26 +78,44 @@ export async function enhanceReply(input: EnhanceInput): Promise<string> {
         Authorization: `Bearer ${OPENROUTER_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model: LLM_MODEL,
-        messages: buildEnhanceMessages(input),
-        temperature: 0.7,
-        max_tokens: 150,
-      }),
-      signal: AbortSignal.timeout(60_000),
+      body: JSON.stringify({ ...payload, model }),
+      signal: AbortSignal.timeout(45_000),
     });
-    if (res.status >= 400) {
-      console.log(`${new Date().toISOString()} [jev] [LLM] status ${res.status}, keeping draft`);
-      return input.draft;
-    }
+    if (res.status >= 400) return { error: `status ${res.status}` };
     const json = (await res.json()) as {
       choices?: { message?: { content?: string } }[];
     };
     const text = json.choices?.[0]?.message?.content?.trim();
-    if (!text) return input.draft;
-    return capWords(text);
+    if (!text) return { error: "empty reply" };
+    return { text };
   } catch (e) {
-    console.log(`${new Date().toISOString()} [jev] [LLM] err, keeping draft: ${e}`);
-    return input.draft;
+    return { error: String(e).split("\n")[0] };
   }
+}
+
+/**
+ * Rewrite Jev's draft via the first working model in the chain.
+ * Fail-safe: every candidate exhausted returns the raw draft unchanged.
+ */
+export async function enhanceReply(input: EnhanceInput): Promise<string> {
+  if (LLM_MODE === "off") return input.draft;
+  const payload = {
+    messages: buildEnhanceMessages(input),
+    temperature: 0.7,
+    max_tokens: 150,
+  };
+  const models = candidateModels();
+  if (models.length === 0) return input.draft;
+  for (const model of models) {
+    const result = await tryModel(model, payload);
+    if ("text" in result) {
+      const final = capWords(result.text);
+      console.log(`${new Date().toISOString()} [jev] [LLM] model=${model}`);
+      return final;
+    }
+    console.log(`${new Date().toISOString()} [jev] [LLM] ${model} failed (${result.error}), next`);
+    if (result.error.includes("429")) await Bun.sleep(1000);
+  }
+  console.log(`${new Date().toISOString()} [jev] [LLM] all models failed, keeping draft`);
+  return input.draft;
 }

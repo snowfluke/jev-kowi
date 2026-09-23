@@ -56,7 +56,17 @@ export const AMBIENT_THRESHOLD = num("JEV_AMBIENT_THRESHOLD", 0.5);
  * - off: send Jev's raw draft, no extra API call.
  */
 export const LLM_MODE = str("JEV_LLM_MODE", "enhance").toLowerCase();
-export const LLM_MODEL = str("JEV_LLM_MODEL", "qwen/qwen3.8-27b:free");
+/**
+ * Ordered fallback chain, comma-separated. Each model is tried once;
+ * any failure (ended, rate-limited, provider down, empty reply) moves
+ * to the next. Keep `openrouter/free` last — OpenRouter itself routes
+ * it to a currently-available free model, so the bot self-sustains
+ * with zero env changes when individual free models die.
+ */
+export const LLM_MODELS = str(
+  "JEV_LLM_MODELS",
+  "qwen/qwen3.8-27b:free,openai/gpt-oss-20b:free,google/gemma-4-26b-a4b-it:free,nvidia/nemotron-nano-9b-v2:free,openrouter/free",
+);
 export const LLM_API_URL = str("JEV_LLM_API_URL", "https://openrouter.ai/api/v1/chat/completions");
 export const LLM_MAX_WORDS = num("JEV_LLM_MAX_WORDS", 20);
 
