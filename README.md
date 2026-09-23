@@ -49,6 +49,21 @@ bun run typecheck
 
 Mention jev or reply to jev's messages. Replies only — it won't respond to messages that don't involve it.
 
+## Ambient channel (optional)
+
+Set `JEV_AMBIENT_CHANNEL_ID` to a channel ID and Jev will listen there unprompted:
+
+1. Every non-bot message triggers a lookback: the last `JEV_AMBIENT_FETCH` (default 10) non-bot messages are fetched as context.
+2. If the latest message contains the name "jev", it replies immediately (free fast-path).
+3. Otherwise Jev itself judges via one `noul` question ("is the latest message talking to Jev…?") and replies only when confidence ≥ `JEV_AMBIENT_THRESHOLD` (default 0.5). API failures fail silent — no reply.
+4. Replies still go through the same serialized tournament pipeline, so ambient replies never overlap mention replies. An already-answered message is never answered twice.
+
+Notes:
+
+- The bot needs the **Read Message History** permission in that channel.
+- Each ambient message costs one judgment API call, plus full tournament cost when it replies.
+- Mention/reply behavior is unchanged and takes priority everywhere, including the ambient channel.
+
 ## Indonesian support
 
 `vocab-id.txt` holds ~5K curated conversational Indonesian words (pronouns, slang like `gue`/`lu`/`wkwk`, everyday verbs/nouns). It stays small on purpose: a full 80K-word KBBI list would make every tournament ~5x more expensive.

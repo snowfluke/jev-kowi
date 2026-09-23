@@ -97,6 +97,16 @@ async function post(state: string, questions: Record<string, unknown>): Promise<
   return {};
 }
 
+/**
+ * Single noul judgment call. Returns 0..1 confidence, 0 on failure
+ * (fail-silent: callers treat 0 as "no").
+ */
+export async function askNoul(state: string, instructions: string): Promise<number> {
+  const answers = await post(state, { judge: { type: "noul", instructions } });
+  const noul = answers["judge"]?.noul;
+  return typeof noul === "number" ? noul : 0;
+}
+
 function choiceQuestion(words: string[]): { type: string; instructions: string; criteria: Record<string, string> } {
   return {
     type: "choice",

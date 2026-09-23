@@ -1,6 +1,7 @@
 import { Client, Events, GatewayIntentBits, Partials, type Message } from "discord.js";
-import { MAX_HISTORY, TOKEN, assertEnv } from "./config.ts";
+import { AMBIENT_CHANNEL_ID, MAX_HISTORY, TOKEN, assertEnv } from "./config.ts";
 import { generateReply, type HistoryTurn } from "./jev.ts";
+import { contextHistory, fetchAmbientContext, isTalkingToJev } from "./ambient.ts";
 import { vocabSizes } from "./vocab.ts";
 
 assertEnv();
@@ -61,11 +62,46 @@ client.once(Events.ClientReady, (c) => {
 });
 
 client.on(Events.MessageCreate, async (m) => {
-  if (!(await shouldRespond(m))) return;
-  const content = stripMention(m.content) || "hello";
-  console.log(`${new Date().toISOString()} [jev] [IN] ${m.author.tag}: ${content.slice(0, 80)}`);
-  addHistory(m.channelId, "user", content);
+  if (await shouldRespond(m)) {
+    const content = stripMention(m.content) || "hello";
+    console.log(`${new Date().toISOString()} [jev] [IN] ${m.author.tag}: ${content.slice(0, 80)}`);
+    addHistory(m.channelId, "user", content);
+    const h = (channelHistory.get(m.channelId) ?? [])
+      .slice(0, -1)
+      .filter((x) => x.role === "user");
+    await handleReply(m, content, h);
+    return;
+  }
+  if (m.author.bot) return;
+  if (AMBIENT_CHANNEL_ID && m.channelId === AMBIENT_CHANNEL_ID) {
+    await handleAmbient(m);
+  }
+});
 
+// Last message ID Jev already answered in ambient mode — guards against
+// double replies when messages arrive in quick succession.
+let lastAmbientReplyId: string | null = null;
+
+async function handleAmbient(m: Message): Promise<void> {
+  const recent = await fetchAmbientContext(m.channel);
+  if (!recent || recent.length === 0) return;
+  const target = recent[recent.length - 1]!;
+  if (target.id === lastAmbientReplyId) return;
+
+  const { addressed, score, reason } = await isTalkingToJev(recent);
+  console.log(
+    `${new Date().toISOString()} [jev] [AMBIENT] score=${score.toFixed(2)} reason=${reason} -> ${addressed ? "reply" : "skip"}: ${target.content.slice(0, 80)}`,
+  );
+  if (!addressed) return;
+
+  lastAmbientReplyId = target.id;
+  const content = stripMention(target.content) || "hello";
+  console.log(`${new Date().toISOString()} [jev] [IN ambient] ${target.author.tag}: ${content.slice(0, 80)}`);
+  addHistory(target.channelId, "user", content);
+  await handleReply(target, content, contextHistory(recent, MAX_HISTORY));
+}
+
+async function handleReply(m: Message, content: string, history: HistoryTurn[]): Promise<void> {
   // Keep the typing indicator alive — a reply takes ~1-3 min of tournaments.
   let typingTimer: Timer | undefined;
   try {
@@ -75,12 +111,7 @@ client.on(Events.MessageCreate, async (m) => {
         (m.channel as { sendTyping: () => Promise<void> }).sendTyping().catch(() => {});
       }, 5_000);
     }
-    const reply = await withGenLock(async () => {
-      const h = (channelHistory.get(m.channelId) ?? [])
-        .slice(0, -1)
-        .filter((x) => x.role === "user");
-      return generateReply(content, h);
-    });
+    const reply = await withGenLock(() => generateReply(content, history));
     console.log(`${new Date().toISOString()} [jev] [OUT] ${reply}`);
     await m.reply({ content: reply, allowedMentions: { repliedUser: false } });
   } catch (e) {
@@ -93,6 +124,6 @@ client.on(Events.MessageCreate, async (m) => {
   } finally {
     if (typingTimer) clearInterval(typingTimer);
   }
-});
+}
 
 client.login(TOKEN);

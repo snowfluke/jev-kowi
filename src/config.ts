@@ -39,6 +39,16 @@ export const VOCAB_MODE = str("JEV_VOCAB_MODE", "auto").toLowerCase();
 export const VOCAB_EN_PATH = str("JEV_VOCAB_EN_PATH", new URL("../vocab-en.txt", import.meta.url).pathname);
 export const VOCAB_ID_PATH = str("JEV_VOCAB_ID_PATH", new URL("../vocab-id.txt", import.meta.url).pathname);
 
+/**
+ * Optional ambient listening: a channel ID where Jev may reply unprompted.
+ * Empty = disabled. When set, every non-bot message there is judged
+ * (last AMBIENT_FETCH non-bot messages as context) and Jev replies only
+ * when the latest message seems addressed to it.
+ */
+export const AMBIENT_CHANNEL_ID = str("JEV_AMBIENT_CHANNEL_ID", "");
+export const AMBIENT_FETCH = num("JEV_AMBIENT_FETCH", 10);
+export const AMBIENT_THRESHOLD = num("JEV_AMBIENT_THRESHOLD", 0.5);
+
 export function assertEnv(): void {
   const missing: string[] = [];
   if (!TOKEN) missing.push("DISCORD_TOKEN_JEV");
