@@ -57,11 +57,11 @@ export const AMBIENT_THRESHOLD = num("JEV_AMBIENT_THRESHOLD", 0.5);
  */
 export const LLM_MODE = str("JEV_LLM_MODE", "enhance").toLowerCase();
 /**
- * Optional manual pin, comma-separated (e.g. "qwen/qwen3.8-27b:free").
- * Empty (default) = self-sustaining mode: free chat models are
- * auto-discovered from OpenRouter's live catalog, cached hourly.
+ * The rewrite model. `openrouter/free` routes server-side to a
+ * currently-available free model, so there is no list to maintain
+ * and nothing to change when individual free models die.
  */
-export const LLM_MODELS = str("JEV_LLM_MODELS", "");
+export const LLM_MODEL = str("JEV_LLM_MODEL", "openrouter/free");
 export const LLM_API_URL = str("JEV_LLM_API_URL", "https://openrouter.ai/api/v1/chat/completions");
 export const LLM_MAX_WORDS = num("JEV_LLM_MAX_WORDS", 20);
 

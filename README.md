@@ -55,7 +55,7 @@ Send a follow-up while Jev is still thinking and the stale run is dropped — la
 
 Tournament sampling gives Jev its charm but also its incoherence (`2 jokowi 2`). After Jev drafts a reply, a chat model rewrites it — short, same language, still silly and a little broken, but coherent and factually fixed:
 
-- `JEV_LLM_MODELS` — optional manual pin (comma-separated). Leave unset and the bot discovers free chat models itself from OpenRouter's live catalog, cached hourly: text-in/text-out `:free` models, junk categories (audio, embedding, safety, code-only) filtered out, generalist vendors first, `openrouter/free` last as the catch-all. First 4 candidates plus the router as the guaranteed final attempt; any failure (ended, 429, provider down, empty, reasoning leak, narration) moves on. Nothing to update when free models rotate.
+- `JEV_LLM_MODEL` (default `openrouter/free`) — OpenRouter routes it server-side to a currently-available free model, so there is no list to maintain and nothing to change when free models rotate. Set it only to pin a specific model. Any failure (rate-limit, empty, reasoning leak, narration) falls back to Jev's raw draft.
 - `JEV_LLM_MAX_WORDS` (default 20) — the rewrite budget; output is defensively capped at 2x, and drafts aren't generated past 2x either, so keep `JEV_MAX_WORDS` at 30–40 when enhancement is on. Longer only burns minutes and money on words the rewriter cuts.
 - `JEV_LLM_MODE=off` — skip the LLM entirely and send Jev's raw draft.
 
@@ -122,7 +122,7 @@ All tuning constants (`JEV_MAX_WORDS`, `JEV_STOP_THRESHOLD`, penalties, …) can
 - By default the bot only reads messages that mention it or reply to it. Nothing else is read or stored.
 - If `JEV_AMBIENT_CHANNEL_ID` is set, the bot additionally reads recent non-bot messages in that one channel to decide whether the latest message is addressed to it. No other channel is ever scanned.
 - Mention/reply/ambient content is kept in memory (last 3 user messages per channel) to build conversational context, and is wiped on restart. It is never written to disk, never sold, and never shared except as follows.
-- To generate a reply, your message plus recent context is sent to OpenRouter (`~typesafe/jev-latest` for the draft, plus the `JEV_LLM_MODELS` chat chain for the rewrite). OpenRouter's own privacy policy and retention apply to those requests.
+- To generate a reply, your message plus recent context is sent to OpenRouter (`~typesafe/jev-latest` for the draft, plus the free router model for the rewrite). OpenRouter's own privacy policy and retention apply to those requests.
 - No analytics, no tracking, no DMs unless you message the bot first. Ask the operator to wipe in-memory history any time.
 
 ## Terms of service
