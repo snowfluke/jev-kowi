@@ -111,10 +111,33 @@ async function post(
  * Single noul judgment call. Returns 0..1 confidence, 0 on failure
  * (fail-silent: callers treat 0 as "no").
  */
-export async function askNoul(state: string, instructions: string): Promise<number> {
-  const answers = await post(state, { judge: { type: "noul", instructions } });
+export async function askNoul(
+  state: string,
+  instructions: string,
+  signal?: AbortSignal,
+): Promise<number> {
+  const answers = await post(state, { judge: { type: "noul", instructions } }, signal);
   const noul = answers["judge"]?.noul;
   return typeof noul === "number" ? noul : 0;
+}
+
+/**
+ * Single choice call over arbitrary options. Returns probabilities
+ * keyed by option id, {} on failure (callers fall back).
+ */
+export async function askChoice(
+  state: string,
+  instructions: string,
+  options: { id: string; label: string }[],
+  signal?: AbortSignal,
+): Promise<Record<string, number>> {
+  if (options.length === 0) return {};
+  const answers = await post(
+    state,
+    { pick: { type: "choice", instructions, criteria: Object.fromEntries(options.map((o) => [o.id, o.label])) } },
+    signal,
+  );
+  return answers["pick"]?.probabilities ?? {};
 }
 
 function choiceQuestion(words: string[]): { type: string; instructions: string; criteria: Record<string, string> } {
@@ -201,6 +224,7 @@ export async function generateReply(
   message: string,
   history: HistoryTurn[] = [],
   signal?: AbortSignal,
+  brief?: string,
 ): Promise<string> {
   const lang: Language = resolveLanguage(message);
   const vocab = buildVocabulary(message, lang);
@@ -213,6 +237,7 @@ export async function generateReply(
   for (let step = 0; step < genMax; step++) {
     signal?.throwIfAborted();
     const turns: string[] = [];
+    if (brief) turns.push(`(Known context: ${brief})`);
     if (lang === "id") turns.push("(Reply in Indonesian, matching the user's language.)");
     for (const h of history) {
       turns.push(`${h.role === "assistant" ? "Jev" : "User"}: ${h.content}`);

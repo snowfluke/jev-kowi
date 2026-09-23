@@ -117,11 +117,67 @@ async function tryModel(
 }
 
 /**
+ * Build the brief prompt. Pure — unit-testable.
+ * The brief is fuel for Jev's tournament, not a reply: facts,
+ * intent and entities in 2-3 plain sentences, no roleplay.
+ */
+export function buildBriefMessages(
+  message: string,
+  relevant: { author: string; mine: boolean; content: string }[],
+): { role: "system" | "user"; content: string }[] {
+  const lang = resolveLanguage(message);
+  const langName = lang === "id" ? "Indonesian" : "English";
+  const lines = relevant.map((r) => `${r.mine ? "Jev" : r.author}: ${r.content}`).join("\n");
+  return [
+    {
+      role: "system",
+      content:
+        `Summarize chat context for a friend who replies in broken slang. ` +
+        `Write a 2-3 sentence brief in ${langName}: what the user wants right now, key facts, names and numbers, ` +
+        `and the direct answer if the message asks something factual. ` +
+        `Plain sentences only — no greeting, no roleplay, no advice on how to reply.`,
+    },
+    {
+      role: "user",
+      content: `Chat:\n${lines}\n\nCurrent message: ${message}`,
+    },
+  ];
+}
+
+/**
+ * Short fact/intent brief from relevant context. Fail-safe: "" on any
+ * failure (Jev then drafts from history alone, as before).
+ */
+export async function briefAnswer(
+  message: string,
+  relevant: { author: string; mine: boolean; content: string }[],
+  signal?: AbortSignal,
+): Promise<string> {
+  if (LLM_MODE === "off" || relevant.length === 0) return "";
+  const result = await tryModel(
+    LLM_MODEL,
+    {
+      messages: buildBriefMessages(message, relevant),
+      temperature: 0.3,
+      max_tokens: 120,
+      reasoning: { exclude: true },
+    },
+    signal,
+  );
+  if ("error" in result) {
+    console.log(`${new Date().toISOString()} [jev] [BRIEF] failed (${result.error}), no brief`);
+    return "";
+  }
+  const cleaned = stripThoughts(result.text);
+  if (!cleaned || looksLikeMeta(cleaned)) return "";
+  return cleaned.slice(0, 500);
+}
+
+/**
  * Rewrite Jev's draft via the free-models router. Single attempt —
  * the router itself picks a live free model server-side.
  * Fail-safe: any failure returns the raw draft unchanged.
- */
-export async function enhanceReply(input: EnhanceInput, signal?: AbortSignal): Promise<string> {
+ */export async function enhanceReply(input: EnhanceInput, signal?: AbortSignal): Promise<string> {
   if (LLM_MODE === "off") return input.draft;
   const payload = {
     messages: buildEnhanceMessages(input),

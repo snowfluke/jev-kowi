@@ -41,13 +41,16 @@ export const VOCAB_ID_PATH = str("JEV_VOCAB_ID_PATH", new URL("../vocab-id.txt",
 
 /**
  * Optional ambient listening: a channel ID where Jev may reply unprompted.
- * Empty = disabled. When set, every non-bot message there is judged
- * (last AMBIENT_FETCH non-bot messages as context) and Jev replies only
- * when the latest message seems addressed to it.
+ * Empty = disabled. When set, every non-bot message triggers a lookback
+ * over the last AMBIENT_FETCH messages, Jev picks the relevant ones,
+ * and a tiered gate decides: reply at AMBIENT_THRESHOLD, a second
+ * opinion between AMBIENT_TIE_LOW and the threshold, skip below.
  */
 export const AMBIENT_CHANNEL_ID = str("JEV_AMBIENT_CHANNEL_ID", "");
-export const AMBIENT_FETCH = num("JEV_AMBIENT_FETCH", 10);
-export const AMBIENT_THRESHOLD = num("JEV_AMBIENT_THRESHOLD", 0.5);
+export const AMBIENT_FETCH = num("JEV_AMBIENT_FETCH", 50);
+export const AMBIENT_THRESHOLD = num("JEV_AMBIENT_THRESHOLD", 0.6);
+export const AMBIENT_TIE_LOW = num("JEV_AMBIENT_TIE_LOW", 0.35);
+export const AMBIENT_TIEBREAK = num("JEV_AMBIENT_TIEBREAK", 0.5);
 
 /**
  * Optional LLM enhancement: Jev still writes the first draft

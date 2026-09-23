@@ -51,6 +51,26 @@ Mention jev or reply to jev's messages. Replies only — it won't respond to mes
 
 Send a follow-up while Jev is still thinking and the stale run is dropped — latest message wins, per channel. No more queued replies to messages from three minutes ago.
 
+## Reply pipeline
+
+Every reply (mention, reply, ambient) flows through the same five stages:
+
+1. **Pull 50** — recent channel history is fetched (humans plus Jev's own messages for reference; other bots excluded).
+2. **Jev picks 10** — one `choice` call ranks the pool by relevance to the current message; failures fall back to the 10 most recent.
+3. **LLM brief** — the router model writes a 2–3 sentence fact/intent brief (not a reply) from the relevant messages. Empty on any failure.
+4. **Jev drafts** — the tournament runs from the enriched state (brief + history), so facts land in broken Jev voice.
+5. **LLM rewrite** — short, same language, same voice (see below).
+
+## Ambient channel (optional)
+
+Set `JEV_AMBIENT_CHANNEL_ID` to a channel ID and Jev will listen there unprompted. Same 50-fetch and Jev top-10 as above, then a tiered gate on the latest message:
+
+- Score ≥ `JEV_AMBIENT_THRESHOLD` (default 0.6), or the name "jev" appears → reply.
+- Score between `JEV_AMBIENT_TIE_LOW` (default 0.35) and the threshold → a second `noul` question with different phrasing breaks the tie (replies at ≥ `JEV_AMBIENT_TIEBREAK`, default 0.5).
+- Below that → skip. API failures fail silent — no reply.
+
+Replies go through the same serialized pipeline, so ambient replies never overlap mention replies. An already-answered message is never answered twice.
+
 ## LLM enhancement (optional, on by default)
 
 Tournament sampling gives Jev its charm but also its incoherence (`2 jokowi 2`). After Jev drafts a reply, a chat model rewrites it — short, same language, still silly and a little broken, but coherent and factually fixed:
@@ -74,8 +94,8 @@ Set `JEV_AMBIENT_CHANNEL_ID` to a channel ID and Jev will listen there unprompte
 
 Notes:
 
-- The bot needs the **Read Message History** permission in that channel.
-- Each ambient message costs one judgment API call, plus full tournament cost when it replies.
+- The bot needs the **Read Message History** permission in any channel it replies in (the 50-message lookback runs everywhere now, not just the ambient channel).
+- Each ambient message costs up to two judgment calls, plus full reply cost when it answers.
 - Mention/reply behavior is unchanged and takes priority everywhere, including the ambient channel.
 
 ## Indonesian support
@@ -93,7 +113,7 @@ Punctuation and digit tokens are injected automatically, so `vocab-id.txt` holds
 
 ## Cost
 
-~$0.01–0.05 per reply via OpenRouter for the tournament sampling (~6 API calls per word). Indonesian replies cost a bit more — both 20K vocabs combine into a ~35K pool. The enhancement model defaults to a free tier, so it adds latency (~seconds) but no cost.
+~$0.01–0.05 per reply via OpenRouter for the tournament sampling (~6 API calls per word). Each reply adds one relevance call, up to two ambient judgments, and two router calls (brief + rewrite, free tier). Indonesian replies cost a bit more — both 20K vocabs combine into a ~35K pool.
 
 ## Vocab
 
@@ -107,8 +127,9 @@ Words can be added or removed freely — the vocab IS the content filter.
 ```
 src/
   index.ts   # discord.js client, history, mention/reply handling, gen lock
-  jev.ts     # tournament sampling + reply generation
-  llm.ts     # chat-model rewrite of Jev's draft (short, same voice)
+  jev.ts     # tournament sampling + reply generation, choice/noul judges
+  llm.ts     # brief + chat-model rewrite of Jev's draft (short, same voice)
+  context.ts # 50-message fetch + Jev top-10 relevance picker
   vocab.ts   # vocab loading, ID/EN stopwords, language detection
   config.ts  # env-driven config (Bun loads .env automatically)
 vocab-en.txt

@@ -1,8 +1,9 @@
 import { Client, Events, GatewayIntentBits, Partials, type Message } from "discord.js";
 import { AMBIENT_CHANNEL_ID, MAX_HISTORY, TOKEN, assertEnv } from "./config.ts";
 import { generateReply, type HistoryTurn } from "./jev.ts";
-import { enhanceReply } from "./llm.ts";
-import { contextHistory, fetchAmbientContext, isTalkingToJev } from "./ambient.ts";
+import { briefAnswer, enhanceReply } from "./llm.ts";
+import { decideAmbient } from "./ambient.ts";
+import { RELEVANT_K, fetchChannelHistory, pickRelevant, toRelevant, type RelevantMsg } from "./context.ts";
 import { vocabSizes } from "./vocab.ts";
 
 assertEnv();
@@ -84,22 +85,31 @@ client.on(Events.MessageCreate, async (m) => {
 let lastAmbientReplyId: string | null = null;
 
 async function handleAmbient(m: Message): Promise<void> {
-  const recent = await fetchAmbientContext(m.channel);
-  if (!recent || recent.length === 0) return;
-  const target = recent[recent.length - 1]!;
+  const selfId = m.client.user?.id;
+  const all = await fetchChannelHistory(m.channel, selfId);
+  if (!all || all.length === 0) return;
+  const target = all[all.length - 1]!;
   if (target.id === lastAmbientReplyId) return;
+  if (target.author.bot) return; // never reply to self
 
-  const { addressed, score, reason } = await isTalkingToJev(recent);
-  console.log(
-    `${new Date().toISOString()} [jev] [AMBIENT] score=${score.toFixed(2)} reason=${reason} -> ${addressed ? "reply" : "skip"}: ${target.content.slice(0, 80)}`,
+  const relevant = await pickRelevant(target.content, toRelevant(all.slice(0, -1), selfId), RELEVANT_K);
+  const { reply, score, reason } = await decideAmbient(
+    [...relevant, ...toRelevant([target], selfId)],
+    target.content,
   );
-  if (!addressed) return;
+  console.log(
+    `${new Date().toISOString()} [jev] [AMBIENT] score=${score.toFixed(2)} reason=${reason} -> ${reply ? "reply" : "skip"}: ${target.content.slice(0, 80)}`,
+  );
+  if (!reply) return;
 
   lastAmbientReplyId = target.id;
   const content = stripMention(target.content) || "hello";
   console.log(`${new Date().toISOString()} [jev] [IN ambient] ${target.author.tag}: ${content.slice(0, 80)}`);
   addHistory(target.channelId, "user", content);
-  await handleReply(target, content, contextHistory(recent, MAX_HISTORY));
+  const h = (channelHistory.get(target.channelId) ?? [])
+    .slice(0, -1)
+    .filter((x) => x.role === "user");
+  await handleReply(target, content, h);
 }
 
 // In-flight generation per channel. A new message aborts the previous
@@ -121,8 +131,24 @@ async function handleReply(m: Message, content: string, history: HistoryTurn[]):
         (m.channel as { sendTyping: () => Promise<void> }).sendTyping().catch(() => {});
       }, 5_000);
     }
-    const draft = await withGenLock(() => generateReply(content, history, signal));
-    const reply = await enhanceReply({ message: content, history, draft }, signal);
+    // 1-2. Pull channel history, let Jev pick the relevant ones.
+    let genHistory = history;
+    let relevant: RelevantMsg[] = [];
+    const pool = await fetchChannelHistory(m.channel, m.client.user?.id, m.id);
+    if (pool && pool.length > 0) {
+      relevant = await pickRelevant(content, toRelevant(pool, m.client.user?.id), RELEVANT_K, signal);
+      const humans = relevant
+        .filter((r) => !r.mine)
+        .slice(-MAX_HISTORY)
+        .map((r): HistoryTurn => ({ role: "user", content: r.content || "hello" }));
+      if (humans.length > 0) genHistory = humans;
+    }
+    // 3. LLM brief fuels Jev's tournament; "" on any failure.
+    const brief = relevant.length > 0 ? await briefAnswer(content, relevant, signal) : "";
+    if (brief) console.log(`${new Date().toISOString()} [jev] [BRIEF] ${brief.slice(0, 120)}`);
+    // 4-5. Jev drafts from the enriched state, LLM rewrites short.
+    const draft = await withGenLock(() => generateReply(content, genHistory, signal, brief));
+    const reply = await enhanceReply({ message: content, history: genHistory, draft }, signal);
     if (reply !== draft) {
       console.log(`${new Date().toISOString()} [jev] [LLM] draft="${draft}" final="${reply}"`);
     }

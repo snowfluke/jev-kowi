@@ -1,59 +1,69 @@
-import type { Message } from "discord.js";
-import { AMBIENT_FETCH, AMBIENT_THRESHOLD } from "./config.ts";
-import { askNoul, type HistoryTurn } from "./jev.ts";
+import { AMBIENT_THRESHOLD, AMBIENT_TIE_LOW, AMBIENT_TIEBREAK } from "./config.ts";
+import { askNoul } from "./jev.ts";
+import type { RelevantMsg } from "./context.ts";
 
 const JUDGE_INSTRUCTIONS =
   "Is the latest message talking to Jev, asking Jev something, or expecting Jev to reply?";
 
-export interface AddressVerdict {
-  addressed: boolean;
-  score: number;
-  reason: "name" | "judge" | "empty";
+const TIEBREAK_INSTRUCTIONS =
+  "Would a short reply from Jev fit naturally here, or is the conversation fine without Jev?";
+
+export type AmbientTier = "reply" | "tiebreak" | "skip";
+
+/** Score tiers. Pure — unit-testable. */
+export function ambientTier(score: number): AmbientTier {
+  if (score >= AMBIENT_THRESHOLD) return "reply";
+  if (score >= AMBIENT_TIE_LOW) return "tiebreak";
+  return "skip";
 }
 
-/** Oldest-first, drop bots, keep the last `limit`. Pure — unit-testable. */
-export function pickContext(messages: Message[], limit: number): Message[] {
-  return messages
-    .filter((m) => !m.author.bot)
-    .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-    .slice(-limit);
-}
-
-export function buildAddressState(recent: Message[]): string {
-  return recent
-    .map((m) => `${m.author.username}: ${m.content || "(attachment)"}`)
-    .join("\n");
-}
-
-export function contextHistory(recent: Message[], maxTurns: number): HistoryTurn[] {
-  return recent
-    .slice(0, -1)
-    .slice(-maxTurns)
-    .map((m) => ({ role: "user" as const, content: m.content || "hello" }));
+export function buildAddressState(recent: Pick<RelevantMsg, "author" | "content">[]): string {
+  return recent.map((m) => `${m.author}: ${m.content || "(attachment)"}`).join("\n");
 }
 
 /**
- * Decide whether the last message in `recent` (chronological, non-bot)
- * is talking to Jev. Fast-path on the name "jev", otherwise one noul
- * judgment call. Fail-silent: API errors score 0, no reply.
+ * Score 0..1 for whether `target` addresses Jev, given relevant context.
+ * Name fast-path first, otherwise one noul call. Fail-silent (0).
  */
-export async function isTalkingToJev(recent: Message[]): Promise<AddressVerdict> {
-  const target = recent[recent.length - 1];
-  if (!target || !target.content) return { addressed: false, score: 0, reason: "empty" };
-  if (/\bjev\b/i.test(target.content)) return { addressed: true, score: 1, reason: "name" };
-  const score = await askNoul(buildAddressState(recent), JUDGE_INSTRUCTIONS);
-  return { addressed: score >= AMBIENT_THRESHOLD, score, reason: "judge" };
+export async function judgeTalkingToJev(
+  recent: Pick<RelevantMsg, "author" | "content">[],
+  targetContent: string,
+  signal?: AbortSignal,
+): Promise<number> {
+  if (!targetContent) return 0;
+  if (/\bjev\b/i.test(targetContent)) return 1;
+  return askNoul(buildAddressState(recent), JUDGE_INSTRUCTIONS, signal);
 }
 
-/** Fetch recent messages and reduce to the last `AMBIENT_FETCH` non-bot ones. */
-export async function fetchAmbientContext(channel: Message["channel"]): Promise<Message[] | null> {
-  if (!("messages" in channel)) return null;
-  try {
-    const coll = await channel.messages.fetch({
-      limit: Math.min(Math.max(AMBIENT_FETCH * 3, 20), 100),
-    });
-    return pickContext([...coll.values()], AMBIENT_FETCH);
-  } catch {
-    return null;
+/** Second opinion for borderline scores, with different phrasing. */
+export async function tiebreakTalkingToJev(
+  recent: Pick<RelevantMsg, "author" | "content">[],
+  signal?: AbortSignal,
+): Promise<number> {
+  return askNoul(buildAddressState(recent), TIEBREAK_INSTRUCTIONS, signal);
+}
+
+export interface AmbientVerdict {
+  reply: boolean;
+  score: number;
+  reason: "name" | "direct" | "tiebreak-pass" | "tiebreak-fail" | "skip" | "empty";
+}
+
+/** Tiered gate: direct reply on high score, tiebreaker in the middle, skip below. */
+export async function decideAmbient(
+  relevant: Pick<RelevantMsg, "author" | "content">[],
+  targetContent: string,
+  signal?: AbortSignal,
+): Promise<AmbientVerdict> {
+  if (!targetContent) return { reply: false, score: 0, reason: "empty" };
+  const score = await judgeTalkingToJev(relevant, targetContent, signal);
+  const tier = ambientTier(score);
+  if (tier === "reply") {
+    return { reply: true, score, reason: score >= 1 ? "name" : "direct" };
   }
+  if (tier === "skip") return { reply: false, score, reason: "skip" };
+  const second = await tiebreakTalkingToJev(relevant, signal);
+  return second >= AMBIENT_TIEBREAK
+    ? { reply: true, score, reason: "tiebreak-pass" }
+    : { reply: false, score, reason: "tiebreak-fail" };
 }
