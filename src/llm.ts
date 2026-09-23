@@ -117,11 +117,11 @@ async function tryModel(
 }
 
 /**
- * Build the brief prompt. Pure — unit-testable.
- * The brief is fuel for Jev's tournament, not a reply: facts,
- * intent and entities in 2-3 plain sentences, no roleplay.
+ * Build the candidates prompt. Pure — unit-testable.
+ * The router writes short replies directly in Jev's voice; Jev itself
+ * will rank them afterwards, so this prompt only demands voice + facts.
  */
-export function buildBriefMessages(
+export function buildCandidatesMessages(
   message: string,
   relevant: { author: string; mine: boolean; content: string }[],
 ): { role: "system" | "user"; content: string }[] {
@@ -132,45 +132,69 @@ export function buildBriefMessages(
     {
       role: "system",
       content:
-        `Summarize chat context for a friend who replies in broken slang. ` +
-        `Write a 2-3 sentence brief in ${langName}: what the user wants right now, key facts, names and numbers, ` +
-        `and the direct answer if the message asks something factual. ` +
-        `Plain sentences only — no greeting, no roleplay, no advice on how to reply.`,
+        `You are Jev, a chaotic Discord bot who talks broken ${langName}. ` +
+        `The user just said something below. Reply with EXACTLY 3 options, one per line, no numbering, no quotes, no explanation. ` +
+        `Each option: max ${LLM_MAX_WORDS} words, in ${langName}, silly, blunt and a little broken — never a polished assistant answer. ` +
+        `Fix factual errors (Indonesia's president is Prabowo Subianto since Oct 2024; Jokowi held 2014-2024). ` +
+        `Vary the three options: playful, blunt, absurd.`,
     },
     {
       role: "user",
-      content: `Chat:\n${lines}\n\nCurrent message: ${message}`,
+      content:
+        (lines ? `Recent chat:\n${lines}\n\n` : "") +
+        `User just said: ${message}`,
     },
   ];
 }
 
 /**
- * Short fact/intent brief from relevant context. Fail-safe: "" on any
- * failure (Jev then drafts from history alone, as before).
+ * Parse "one option per line" output into clean candidates. Pure.
+ * Strips numbering, bullets, quotes; drops empties, overlong lines
+ * and meta-commentary. Caps at 3.
  */
-export async function briefAnswer(
+export function parseCandidates(text: string): string[] {
+  const out: string[] = [];
+  for (const raw of text.split("\n")) {
+    let line = raw
+      .trim()
+      .replace(/^(\d+[.)]\s*|[-*•]\s*)/, "")
+      .replace(/^["“”']+|["“”']+$/g, "")
+      .trim();
+    if (!line || looksLikeMeta(line)) continue;
+    out.push(capWords(line));
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
+/**
+ * Generate up to 3 short reply candidates via the free router.
+ * Returns [] on any failure (caller falls back to a Jev draft).
+ */
+export async function llmCandidates(
   message: string,
   relevant: { author: string; mine: boolean; content: string }[],
   signal?: AbortSignal,
-): Promise<string> {
-  if (LLM_MODE === "off" || relevant.length === 0) return "";
+): Promise<string[]> {
+  if (LLM_MODE === "off") return [];
   const result = await tryModel(
     LLM_MODEL,
     {
-      messages: buildBriefMessages(message, relevant),
-      temperature: 0.3,
-      max_tokens: 120,
+      messages: buildCandidatesMessages(message, relevant),
+      temperature: 0.8,
+      max_tokens: 200,
       reasoning: { exclude: true },
     },
     signal,
   );
   if ("error" in result) {
-    console.log(`${new Date().toISOString()} [jev] [BRIEF] failed (${result.error}), no brief`);
-    return "";
+    console.log(`${new Date().toISOString()} [jev] [LLM] candidates failed (${result.error})`);
+    return [];
   }
   const cleaned = stripThoughts(result.text);
-  if (!cleaned || looksLikeMeta(cleaned)) return "";
-  return cleaned.slice(0, 500);
+  const parsed = parseCandidates(cleaned);
+  console.log(`${new Date().toISOString()} [jev] [LLM] model=${LLM_MODEL} candidates=${parsed.length}`);
+  return parsed;
 }
 
 /**

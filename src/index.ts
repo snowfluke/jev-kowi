@@ -1,7 +1,7 @@
 import { Client, Events, GatewayIntentBits, Partials, type Message } from "discord.js";
 import { AMBIENT_CHANNEL_ID, MAX_HISTORY, TOKEN, assertEnv } from "./config.ts";
-import { generateReply, type HistoryTurn } from "./jev.ts";
-import { briefAnswer, enhanceReply } from "./llm.ts";
+import { generateReply, rankReplies, type HistoryTurn } from "./jev.ts";
+import { enhanceReply, llmCandidates } from "./llm.ts";
 import { decideAmbient } from "./ambient.ts";
 import { RELEVANT_K, fetchChannelHistory, pickRelevant, toRelevant, type RelevantMsg } from "./context.ts";
 import { vocabSizes } from "./vocab.ts";
@@ -143,14 +143,24 @@ async function handleReply(m: Message, content: string, history: HistoryTurn[]):
         .map((r): HistoryTurn => ({ role: "user", content: r.content || "hello" }));
       if (humans.length > 0) genHistory = humans;
     }
-    // 3. LLM brief fuels Jev's tournament; "" on any failure.
-    const brief = relevant.length > 0 ? await briefAnswer(content, relevant, signal) : "";
-    if (brief) console.log(`${new Date().toISOString()} [jev] [BRIEF] ${brief.slice(0, 120)}`);
-    // 4-5. Jev drafts from the enriched state, LLM rewrites short.
-    const draft = await withGenLock(() => generateReply(content, genHistory, signal, brief));
-    const reply = await enhanceReply({ message: content, history: genHistory, draft }, signal);
-    if (reply !== draft) {
-      console.log(`${new Date().toISOString()} [jev] [LLM] draft="${draft}" final="${reply}"`);
+    // 3. Router writes candidates in Jev's voice; Jev ranks them.
+    // Tournament draft is the outage fallback, capped short.
+    const candidates = await llmCandidates(content, relevant, signal);
+    let reply: string;
+    if (candidates.length > 0) {
+      for (const [i, c] of candidates.entries()) {
+        console.log(`${new Date().toISOString()} [jev] [CAND ${i}] ${c.slice(0, 120)}`);
+      }
+      const winner = await rankReplies(content, genHistory, candidates, signal);
+      const pick = winner >= 0 ? winner : 0;
+      console.log(`${new Date().toISOString()} [jev] [RANK] winner=${pick}`);
+      reply = candidates[pick]!;
+    } else {
+      const draft = await withGenLock(() => generateReply(content, genHistory, signal, 12));
+      reply = await enhanceReply({ message: content, history: genHistory, draft }, signal);
+      if (reply !== draft) {
+        console.log(`${new Date().toISOString()} [jev] [LLM] draft="${draft}" final="${reply}"`);
+      }
     }
     console.log(`${new Date().toISOString()} [jev] [OUT] ${reply}`);
     await m.reply({ content: reply, allowedMentions: { repliedUser: false } });

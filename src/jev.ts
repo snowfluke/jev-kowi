@@ -122,6 +122,38 @@ export async function askNoul(
 }
 
 /**
+ * Rank full reply candidates with one choice call. Returns the winning
+ * index, -1 on failure (caller falls back to candidates[0]).
+ */
+export async function rankReplies(
+  message: string,
+  history: HistoryTurn[],
+  candidates: string[],
+  signal?: AbortSignal,
+): Promise<number> {
+  if (candidates.length === 0) return -1;
+  if (candidates.length === 1) return 0;
+  const turns = history.map((h) => `${h.role === "assistant" ? "Jev" : "User"}: ${h.content}`);
+  turns.push(`User just said: ${message}`);
+  const probs = await askChoice(
+    `${turns.join("\n")}\nWhich reply fits best?`,
+    "Pick the best reply.",
+    candidates.map((c, i) => ({ id: `c${i}`, label: c })),
+    signal,
+  );
+  let best = -1;
+  let bestScore = 0;
+  candidates.forEach((_, i) => {
+    const s = probs[`c${i}`] ?? 0;
+    if (s > bestScore) {
+      bestScore = s;
+      best = i;
+    }
+  });
+  return best;
+}
+
+/**
  * Single choice call over arbitrary options. Returns probabilities
  * keyed by option id, {} on failure (callers fall back).
  */
@@ -224,7 +256,7 @@ export async function generateReply(
   message: string,
   history: HistoryTurn[] = [],
   signal?: AbortSignal,
-  brief?: string,
+  maxWords?: number,
 ): Promise<string> {
   const lang: Language = resolveLanguage(message);
   const vocab = buildVocabulary(message, lang);
@@ -232,12 +264,11 @@ export async function generateReply(
 
   // Words past twice the rewrite budget are cut by the enhancer anyway —
   // don't burn tournament calls (minutes + money) generating them.
-  const genMax = LLM_MODE === "enhance" ? Math.min(MAX_WORDS, LLM_MAX_WORDS * 2) : MAX_WORDS;
+  const genMax = Math.min(MAX_WORDS, LLM_MODE === "enhance" ? LLM_MAX_WORDS * 2 : Infinity, maxWords ?? Infinity);
 
   for (let step = 0; step < genMax; step++) {
     signal?.throwIfAborted();
     const turns: string[] = [];
-    if (brief) turns.push(`(Known context: ${brief})`);
     if (lang === "id") turns.push("(Reply in Indonesian, matching the user's language.)");
     for (const h of history) {
       turns.push(`${h.role === "assistant" ? "Jev" : "User"}: ${h.content}`);

@@ -57,9 +57,9 @@ Every reply (mention, reply, ambient) flows through the same five stages:
 
 1. **Pull 50** — recent channel history is fetched (humans plus Jev's own messages for reference; other bots excluded).
 2. **Jev picks 10** — one `choice` call ranks the pool by relevance to the current message; failures fall back to the 10 most recent.
-3. **LLM brief** — the router model writes a 2–3 sentence fact/intent brief (not a reply) from the relevant messages. Empty on any failure.
-4. **Jev drafts** — the tournament runs from the enriched state (brief + history), so facts land in broken Jev voice.
-5. **LLM rewrite** — short, same language, same voice (see below).
+3. **Router writes 3** — three short candidates in Jev's voice (silly, blunt, broken, factual).
+4. **Jev ranks** — one `choice` call picks the winning reply; failures fall back to candidate zero.
+5. **Post** — the winner goes out as-is. Only when the router is fully down does the old word-by-word tournament run (capped at 12 words) as fallback.
 
 ## Ambient channel (optional)
 
@@ -71,17 +71,17 @@ Set `JEV_AMBIENT_CHANNEL_ID` to a channel ID and Jev will listen there unprompte
 
 Replies go through the same serialized pipeline, so ambient replies never overlap mention replies. An already-answered message is never answered twice.
 
-## LLM enhancement (optional, on by default)
+## Replies: LLM drafts, Jev ranks (on by default)
 
-Tournament sampling gives Jev its charm but also its incoherence (`2 jokowi 2`). After Jev drafts a reply, a chat model rewrites it — short, same language, still silly and a little broken, but coherent and factually fixed:
+Word-by-word tournament sampling gave Jev its charm but degenerated past a few words (`netral neutral netral…`, the 100-word pantun spiral) — no penalty tuning fixes a generator stuck in synonym drift. So the jobs flipped: the router writes three short candidates in Jev's voice, Jev ranks them with one `choice` call, the winner posts as-is:
 
-- `JEV_LLM_MODEL` (default `openrouter/free`) — OpenRouter routes it server-side to a currently-available free model, so there is no list to maintain and nothing to change when free models rotate. Set it only to pin a specific model. Any failure (rate-limit, empty, reasoning leak, narration) falls back to Jev's raw draft.
-- `JEV_LLM_MAX_WORDS` (default 20) — the rewrite budget; output is defensively capped at 2x, and drafts aren't generated past 2x either, so keep `JEV_MAX_WORDS` at 30–40 when enhancement is on. Longer only burns minutes and money on words the rewriter cuts.
-- `JEV_LLM_MODE=off` — skip the LLM entirely and send Jev's raw draft.
+- `JEV_LLM_MODEL` (default `openrouter/free`) — OpenRouter routes it server-side to a currently-available free model. Set it only to pin a specific model.
+- `JEV_LLM_MAX_WORDS` (default 20) — per-candidate budget; output is defensively capped at 2x.
+- `JEV_LLM_MODE=off` — skip the router entirely and always use the tournament draft.
 
-The prompt tells the model to keep Jev's voice and only fix what's wrong (e.g. Indonesia's president is Prabowo since Oct 2024, not Jokowi). Any LLM failure fails safe to the raw draft, and the log shows which model answered plus both texts (`[LLM] model=…`, `[LLM] draft="…" final="…"`).
+The candidates prompt enforces voice and facts (silly, blunt, a little broken; Prabowo president since Oct 2024). The log shows each candidate plus the winner (`[CAND 0]…`, `[RANK] winner=1`). Router fully down → one capped 12-word tournament draft as fallback → `...` after that.
 
-Free-tier note: `:free` models are rate-limited (20 req/min; 50/day, or 1000/day after a one-time $10 credit purchase). When every candidate is exhausted the bot just sends Jev's raw draft — degraded, never broken.
+Free-tier note: `:free` models are rate-limited (20 req/min; 50/day, or 1000/day after a one-time $10 credit purchase). When the router is exhausted the bot falls back to the draft, then silence — degraded, never broken.
 
 ## Ambient channel (optional)
 
@@ -113,7 +113,7 @@ Punctuation and digit tokens are injected automatically, so `vocab-id.txt` holds
 
 ## Cost
 
-~$0.01–0.05 per reply via OpenRouter for the tournament sampling (~6 API calls per word). Each reply adds one relevance call, up to two ambient judgments, and two router calls (brief + rewrite, free tier). Indonesian replies cost a bit more — both 20K vocabs combine into a ~35K pool.
+~$0.01–0.05 per full tournament fallback via OpenRouter (~6 API calls per word). A normal reply costs one relevance call, one rank call, up to two ambient judgments, and one free router call — roughly $0.001. Indonesian replies cost a bit more when the tournament runs, since both 20K vocabs combine into a ~35K pool.
 
 ## Vocab
 
@@ -128,7 +128,7 @@ Words can be added or removed freely — the vocab IS the content filter.
 src/
   index.ts   # discord.js client, history, mention/reply handling, gen lock
   jev.ts     # tournament sampling + reply generation, choice/noul judges
-  llm.ts     # brief + chat-model rewrite of Jev's draft (short, same voice)
+  llm.ts     # router candidates in Jev's voice + legacy draft rewrite
   context.ts # 50-message fetch + Jev top-10 relevance picker
   vocab.ts   # vocab loading, ID/EN stopwords, language detection
   config.ts  # env-driven config (Bun loads .env automatically)
