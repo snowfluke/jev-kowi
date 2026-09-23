@@ -78,7 +78,7 @@ Notes:
 
 ## Indonesian support
 
-`vocab-id.txt` holds ~5.5K curated conversational Indonesian words: everyday verbs/nouns, Gen Z slang (`yapping`, `spill`, `ambyar`), regional address words (`mas`, `bli`, `uda`, `pace`), and 2019–2026 public life — presidents, ministers, candidates, parties, elections, plus football and esports. It stays small on purpose: a full 80K-word KBBI list would make every tournament ~5x more expensive.
+`vocab-id.txt` holds 20K curated Indonesian words: everyday verbs/nouns, Gen Z slang (`yapping`, `spill`, `ambyar`), regional address words (`mas`, `bli`, `uda`, `pace`), 2019–2026 public life — presidents, ministers, candidates, parties, elections, football and esports — plus a top usage-frequency fill so the pool matches the 20K English vocab word for word.
 
 Per-message language handling (`src/vocab.ts`):
 
@@ -91,12 +91,12 @@ Punctuation and digit tokens are injected automatically, so `vocab-id.txt` holds
 
 ## Cost
 
-~$0.01–0.05 per reply via OpenRouter for the tournament sampling (~6 API calls per word). The enhancement model defaults to a free tier, so it adds latency (~seconds) but no cost.
+~$0.01–0.05 per reply via OpenRouter for the tournament sampling (~6 API calls per word). Indonesian replies cost a bit more — both 20K vocabs combine into a ~35K pool. The enhancement model defaults to a free tier, so it adds latency (~seconds) but no cost.
 
 ## Vocab
 
 - `vocab-en.txt`: 20K word list (from [bewinxed/jevgpt](https://github.com/bewinxed/jevgpt)) with slurs removed.
-- `vocab-id.txt`: ~5.5K curated Indonesian words, see above.
+- `vocab-id.txt`: 20K Indonesian words (curated core + frequency fill), see above.
 
 Words can be added or removed freely — the vocab IS the content filter.
 
