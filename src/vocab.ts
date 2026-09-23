@@ -17,7 +17,7 @@ function loadWords(path: string): string[] {
   return readFileSync(path, "utf8")
     .split("\n")
     .map((w) => w.trim())
-    .filter((w) => w !== "" && !BANNED.has(w.toLowerCase()));
+    .filter((w) => w !== "" && !w.startsWith("#") && !BANNED.has(w.toLowerCase()));
 }
 
 function stripPunctAndDigits(words: string[]): string[] {

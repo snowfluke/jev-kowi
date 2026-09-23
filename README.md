@@ -66,7 +66,7 @@ Notes:
 
 ## Indonesian support
 
-`vocab-id.txt` holds ~5K curated conversational Indonesian words (pronouns, slang like `gue`/`lu`/`wkwk`, everyday verbs/nouns). It stays small on purpose: a full 80K-word KBBI list would make every tournament ~5x more expensive.
+`vocab-id.txt` holds ~5.5K curated conversational Indonesian words: everyday verbs/nouns, Gen Z slang (`yapping`, `spill`, `ambyar`), regional address words (`mas`, `bli`, `uda`, `pace`), and 2019–2026 public life — presidents, ministers, candidates, parties, elections, plus football and esports. It stays small on purpose: a full 80K-word KBBI list would make every tournament ~5x more expensive.
 
 Per-message language handling (`src/vocab.ts`):
 
@@ -75,7 +75,7 @@ Per-message language handling (`src/vocab.ts`):
 - `en` / `id`: force a single vocab.
 - Indonesian replies get a `(Reply in Indonesian…)` hint line in the decision state; Indonesian function words (`yang`, `dan`, `dong`, `nih`, …) get the gentler stopword penalty so Jev can still glue sentences together.
 
-Punctuation and digit tokens are injected automatically, so `vocab-id.txt` contains words only.
+Punctuation and digit tokens are injected automatically, so `vocab-id.txt` holds words (plus `#` comment section headers and a few number tokens like `212`).
 
 ## Cost
 
@@ -84,7 +84,7 @@ Punctuation and digit tokens are injected automatically, so `vocab-id.txt` conta
 ## Vocab
 
 - `vocab-en.txt`: 20K word list (from [bewinxed/jevgpt](https://github.com/bewinxed/jevgpt)) with slurs removed.
-- `vocab-id.txt`: ~5K curated Indonesian words, see above.
+- `vocab-id.txt`: ~5.5K curated Indonesian words, see above.
 
 Words can be added or removed freely — the vocab IS the content filter.
 
