@@ -71,7 +71,7 @@ client.on(Events.MessageCreate, async (m) => {
     const h = (channelHistory.get(m.channelId) ?? [])
       .slice(0, -1)
       .filter((x) => x.role === "user");
-    await handleReply(m, content, h);
+    await handleReply(m, content, h, "mention");
     return;
   }
   if (m.author.bot) return;
@@ -80,46 +80,95 @@ client.on(Events.MessageCreate, async (m) => {
   }
 });
 
+// In-flight task per channel. A newer message supersedes per the priority
+// rule below — latest wins, stale replies are dropped.
+const channelTasks = new Map<string, { ctrl: AbortController; kind: ReplyKind }>();
+
 // Last message ID Jev already answered in ambient mode — guards against
 // double replies when messages arrive in quick succession.
 let lastAmbientReplyId: string | null = null;
 
-async function handleAmbient(m: Message): Promise<void> {
-  const selfId = m.client.user?.id;
-  const all = await fetchChannelHistory(m.channel, selfId);
-  if (!all || all.length === 0) return;
-  const target = all[all.length - 1]!;
-  if (target.id === lastAmbientReplyId) return;
-  if (target.author.bot) return; // never reply to self
+type ReplyKind = "mention" | "ambient";
 
-  const relevant = await pickRelevant(target.content, toRelevant(all.slice(0, -1), selfId), RELEVANT_K);
-  const { reply, score, reason } = await decideAmbient(
-    [...relevant, ...toRelevant([target], selfId)],
-    target.content,
-  );
-  console.log(
-    `${new Date().toISOString()} [jev] [AMBIENT] score=${score.toFixed(2)} reason=${reason} -> ${reply ? "reply" : "skip"}: ${target.content.slice(0, 80)}`,
-  );
-  if (!reply) return;
-
-  lastAmbientReplyId = target.id;
-  const content = stripMention(target.content) || "hello";
-  console.log(`${new Date().toISOString()} [jev] [IN ambient] ${target.author.tag}: ${content.slice(0, 80)}`);
-  addHistory(target.channelId, "user", content);
-  const h = (channelHistory.get(target.channelId) ?? [])
-    .slice(0, -1)
-    .filter((x) => x.role === "user");
-  await handleReply(target, content, h);
+/**
+ * Priority rule. Mentions always win; ambient yields to an in-flight
+ * mention but supersedes older ambient work. Pure — unit-testable.
+ */
+export function shouldSupersede(prevKind: ReplyKind | undefined, newKind: ReplyKind): boolean {
+  if (!prevKind) return true;
+  if (newKind === "mention") return true;
+  return prevKind === "ambient";
 }
 
-// In-flight generation per channel. A new message aborts the previous
-// task in the same channel — latest wins, stale replies are dropped.
-const channelTasks = new Map<string, AbortController>();
+async function handleAmbient(m: Message): Promise<void> {
+  // A mention is already thinking here — don't even judge, let it finish.
+  if (channelTasks.get(m.channelId)?.kind === "mention") {
+    console.log(`${new Date().toISOString()} [jev] [AMBIENT] yield: mention in flight, skip`);
+    return;
+  }
+  // Register the judge phase so a mention arriving mid-judge aborts it.
+  const judgeCtrl = new AbortController();
+  channelTasks.set(m.channelId, { ctrl: judgeCtrl, kind: "ambient" });
+  try {
+    const selfId = m.client.user?.id;
+    const all = await fetchChannelHistory(m.channel, selfId);
+    if (!all || all.length === 0) return;
+    const target = all[all.length - 1]!;
+    if (target.id === lastAmbientReplyId) return;
+    if (target.author.bot) return; // never reply to self
 
-async function handleReply(m: Message, content: string, history: HistoryTurn[]): Promise<void> {
-  channelTasks.get(m.channelId)?.abort();
+    const relevant = await pickRelevant(
+      target.content,
+      toRelevant(all.slice(0, -1), selfId),
+      RELEVANT_K,
+      judgeCtrl.signal,
+    );
+    const { reply, score, reason } = await decideAmbient(
+      [...relevant, ...toRelevant([target], selfId)],
+      target.content,
+      judgeCtrl.signal,
+    );
+    console.log(
+      `${new Date().toISOString()} [jev] [AMBIENT] score=${score.toFixed(2)} reason=${reason} -> ${reply ? "reply" : "skip"}: ${target.content.slice(0, 80)}`,
+    );
+    if (!reply) return;
+
+    lastAmbientReplyId = target.id;
+    const content = stripMention(target.content) || "hello";
+    console.log(`${new Date().toISOString()} [jev] [IN ambient] ${target.author.tag}: ${content.slice(0, 80)}`);
+    addHistory(target.channelId, "user", content);
+    const h = (channelHistory.get(target.channelId) ?? [])
+      .slice(0, -1)
+      .filter((x) => x.role === "user");
+    await handleReply(target, content, h, "ambient");
+  } catch (e) {
+    if (judgeCtrl.signal.aborted) {
+      console.log(`${new Date().toISOString()} [jev] [AMBIENT] aborted by newer message, stop`);
+      return;
+    }
+    throw e;
+  } finally {
+    const cur = channelTasks.get(m.channelId);
+    if (cur?.ctrl === judgeCtrl) channelTasks.delete(m.channelId);
+  }
+}
+
+async function handleReply(
+  m: Message,
+  content: string,
+  history: HistoryTurn[],
+  kind: ReplyKind,
+): Promise<void> {
+  const prev = channelTasks.get(m.channelId);
+  if (prev && !shouldSupersede(prev.kind, kind)) {
+    console.log(
+      `${new Date().toISOString()} [jev] [YIELD] ${kind} yields to in-flight ${prev.kind}, skip`,
+    );
+    return;
+  }
+  prev?.ctrl.abort();
   const ctrl = new AbortController();
-  channelTasks.set(m.channelId, ctrl);
+  channelTasks.set(m.channelId, { ctrl, kind });
   const signal = ctrl.signal;
 
   // Keep the typing indicator alive — a reply takes ~1-3 min of tournaments.
@@ -163,6 +212,10 @@ async function handleReply(m: Message, content: string, history: HistoryTurn[]):
       }
     }
     console.log(`${new Date().toISOString()} [jev] [OUT] ${reply}`);
+    if (signal.aborted) {
+      console.log(`${new Date().toISOString()} [jev] [DROP] aborted before send, no reply`);
+      return;
+    }
     await m.reply({ content: reply, allowedMentions: { repliedUser: false } });
   } catch (e) {
     if (signal.aborted) {
@@ -177,7 +230,8 @@ async function handleReply(m: Message, content: string, history: HistoryTurn[]):
     }
   } finally {
     if (typingTimer) clearInterval(typingTimer);
-    if (channelTasks.get(m.channelId) === ctrl) channelTasks.delete(m.channelId);
+    const cur = channelTasks.get(m.channelId);
+    if (cur?.ctrl === ctrl) channelTasks.delete(m.channelId);
   }
 }
 

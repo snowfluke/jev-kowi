@@ -49,7 +49,7 @@ bun run typecheck
 
 Mention jev or reply to jev's messages. Replies only — it won't respond to messages that don't involve it.
 
-Send a follow-up while Jev is still thinking and the stale run is dropped — latest message wins, per channel. No more queued replies to messages from three minutes ago.
+Send a follow-up while Jev is still thinking and the stale run is dropped — latest message wins, per channel. Priority is explicit: a mention always supersedes ambient work, while ambient chatter never interrupts an in-flight mention reply (it yields before judging). No more queued replies to messages from three minutes ago, and no double replies when both paths fire at once.
 
 ## Reply pipeline
 
