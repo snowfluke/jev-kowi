@@ -87,6 +87,21 @@ vocab-id.txt
 
 All tuning constants (`JEV_MAX_WORDS`, `JEV_STOP_THRESHOLD`, penalties, …) can be overridden via env — see `.env.example` and `src/config.ts`. Ported from the original `jev_bot.py` (discord.py + asyncio); behavior is identical except the lock is a promise queue instead of `asyncio.Lock`.
 
+## Privacy policy
+
+- By default the bot only reads messages that mention it or reply to it. Nothing else is read or stored.
+- If `JEV_AMBIENT_CHANNEL_ID` is set, the bot additionally reads recent non-bot messages in that one channel to decide whether the latest message is addressed to it. No other channel is ever scanned.
+- Mention/reply/ambient content is kept in memory (last 3 user messages per channel) to build conversational context, and is wiped on restart. It is never written to disk, never sold, and never shared except as follows.
+- To generate a reply, your message plus recent context is sent to OpenRouter (`~typesafe/jev-latest`). OpenRouter's own privacy policy and retention apply to that request.
+- No analytics, no tracking, no DMs unless you message the bot first. Ask the operator to wipe in-memory history any time.
+
+## Terms of service
+
+- The bot is a novelty. Its output is broken by design and may be nonsensical or wrong — do not rely on it.
+- Replies cost the operator real API money (~$0.01–0.05 each). Do not spam it; the operator may rate-limit, ignore, or block abusers.
+- Do not use the bot for harassment, hate, spam, or anything illegal. The vocab is a curated filter, not a guarantee — you are responsible for what you ask it to say.
+- The bot runs on Discord, so Discord's Terms of Service apply. The service may go offline, break, or change at any time with no warranty.
+
 ## Credits
 
 - [TypeSafe AI](https://typesafe.ai) for Jev
