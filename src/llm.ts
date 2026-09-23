@@ -221,8 +221,13 @@ interface ChatPayload {
 }
 
 /** One attempt against one model. Returns text on success, null on any failure. */
-async function tryModel(model: string, payload: Omit<ChatPayload, "model">): Promise<{ text: string } | { error: string }> {
+async function tryModel(
+  model: string,
+  payload: Omit<ChatPayload, "model">,
+  signal?: AbortSignal,
+): Promise<{ text: string } | { error: string }> {
   try {
+    signal?.throwIfAborted();
     const res = await fetch(LLM_API_URL, {
       method: "POST",
       headers: {
@@ -230,7 +235,7 @@ async function tryModel(model: string, payload: Omit<ChatPayload, "model">): Pro
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ ...payload, model }),
-      signal: AbortSignal.timeout(45_000),
+      signal: signal ? AbortSignal.any([AbortSignal.timeout(45_000), signal]) : AbortSignal.timeout(45_000),
     });
     if (res.status >= 400) return { error: `status ${res.status}` };
     const json = (await res.json()) as {
@@ -240,6 +245,7 @@ async function tryModel(model: string, payload: Omit<ChatPayload, "model">): Pro
     if (!text) return { error: "empty reply" };
     return { text };
   } catch (e) {
+    signal?.throwIfAborted();
     return { error: String(e).split("\n")[0] };
   }
 }
@@ -248,7 +254,7 @@ async function tryModel(model: string, payload: Omit<ChatPayload, "model">): Pro
  * Rewrite Jev's draft via the first working model in the chain.
  * Fail-safe: every candidate exhausted returns the raw draft unchanged.
  */
-export async function enhanceReply(input: EnhanceInput): Promise<string> {
+export async function enhanceReply(input: EnhanceInput, signal?: AbortSignal): Promise<string> {
   if (LLM_MODE === "off") return input.draft;
   const payload = {
     messages: buildEnhanceMessages(input),
@@ -263,7 +269,8 @@ export async function enhanceReply(input: EnhanceInput): Promise<string> {
     return input.draft;
   }
   for (const model of models) {
-    const result = await tryModel(model, payload);
+    signal?.throwIfAborted();
+    const result = await tryModel(model, payload, signal);
     if ("text" in result) {
       const cleaned = stripThoughts(result.text);
       if (!cleaned) {

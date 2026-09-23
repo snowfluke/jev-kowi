@@ -102,7 +102,16 @@ async function handleAmbient(m: Message): Promise<void> {
   await handleReply(target, content, contextHistory(recent, MAX_HISTORY));
 }
 
+// In-flight generation per channel. A new message aborts the previous
+// task in the same channel — latest wins, stale replies are dropped.
+const channelTasks = new Map<string, AbortController>();
+
 async function handleReply(m: Message, content: string, history: HistoryTurn[]): Promise<void> {
+  channelTasks.get(m.channelId)?.abort();
+  const ctrl = new AbortController();
+  channelTasks.set(m.channelId, ctrl);
+  const signal = ctrl.signal;
+
   // Keep the typing indicator alive — a reply takes ~1-3 min of tournaments.
   let typingTimer: Timer | undefined;
   try {
@@ -112,14 +121,18 @@ async function handleReply(m: Message, content: string, history: HistoryTurn[]):
         (m.channel as { sendTyping: () => Promise<void> }).sendTyping().catch(() => {});
       }, 5_000);
     }
-    const draft = await withGenLock(() => generateReply(content, history));
-    const reply = await enhanceReply({ message: content, history, draft });
+    const draft = await withGenLock(() => generateReply(content, history, signal));
+    const reply = await enhanceReply({ message: content, history, draft }, signal);
     if (reply !== draft) {
       console.log(`${new Date().toISOString()} [jev] [LLM] draft="${draft}" final="${reply}"`);
     }
     console.log(`${new Date().toISOString()} [jev] [OUT] ${reply}`);
     await m.reply({ content: reply, allowedMentions: { repliedUser: false } });
   } catch (e) {
+    if (signal.aborted) {
+      console.log(`${new Date().toISOString()} [jev] [DROP] superseded by newer message, no reply`);
+      return;
+    }
     console.error(`${new Date().toISOString()} [jev] Error:`, e);
     try {
       await m.reply({ content: "...", allowedMentions: { repliedUser: false } });
@@ -128,6 +141,7 @@ async function handleReply(m: Message, content: string, history: HistoryTurn[]):
     }
   } finally {
     if (typingTimer) clearInterval(typingTimer);
+    if (channelTasks.get(m.channelId) === ctrl) channelTasks.delete(m.channelId);
   }
 }
 

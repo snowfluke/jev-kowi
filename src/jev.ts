@@ -72,9 +72,15 @@ interface NoulAnswer {
 
 type Answers = Record<string, ChoiceAnswer & NoulAnswer>;
 
-async function post(state: string, questions: Record<string, unknown>): Promise<Answers> {
+async function post(
+  state: string,
+  questions: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<Answers> {
   const body = JSON.stringify({ model: MODEL, state, questions });
+  const combined = signal ? AbortSignal.any([AbortSignal.timeout(30_000), signal]) : AbortSignal.timeout(30_000);
   for (let attempt = 0; attempt < 3; attempt++) {
+    signal?.throwIfAborted();
     try {
       const res = await fetch(API_URL, {
         method: "POST",
@@ -83,15 +89,17 @@ async function post(state: string, questions: Record<string, unknown>): Promise<
           "Content-Type": "application/json",
         },
         body,
-        signal: AbortSignal.timeout(30_000),
+        signal: combined,
       });
       if (res.status < 400) {
         const json = (await res.json()) as { answers?: Answers };
         return json.answers ?? {};
       }
       log(`[jev] API status ${res.status}, retry ${attempt}`);
+      signal?.throwIfAborted();
       await Bun.sleep(1000 * (1 + 2 * attempt));
     } catch (e) {
+      signal?.throwIfAborted();
       log(`[jev] API err ${attempt}: ${e}`);
       await Bun.sleep(1000 * (1 + 2 * attempt));
     }
@@ -149,6 +157,7 @@ export function isAttractor(word: string, prob: number, reply: string[]): boolea
 async function nextWord(
   state: string,
   vocab: string[],
+  signal?: AbortSignal,
 ): Promise<{ probs: Record<string, number>; complete: number }> {
   const buckets = chunk(shuffled(vocab), MAX_CHOICES);
   const groups = chunk(buckets, QUESTIONS_PER_CALL);
@@ -158,11 +167,15 @@ async function nextWord(
     g.forEach((b, i) => {
       questions[`b${gi * QUESTIONS_PER_CALL + i}`] = choiceQuestion(b);
     });
-    return post(state, questions);
+    return post(state, questions, signal);
   });
-  const completeCall = post(state, {
-    complete: { type: "noul", instructions: "Is the reply complete?" },
-  });
+  const completeCall = post(
+    state,
+    {
+      complete: { type: "noul", instructions: "Is the reply complete?" },
+    },
+    signal,
+  );
 
   const results = await Promise.all([...groupCalls, completeCall]);
   const complete = (results[results.length - 1]!["complete"]?.noul as number) ?? 0;
@@ -179,7 +192,7 @@ async function nextWord(
   }
   if (!finalists.includes(END)) finalists.push(END);
 
-  const runoff = await post(state, { final: choiceQuestion(finalists.slice(0, MAX_CHOICES)) });
+  const runoff = await post(state, { final: choiceQuestion(finalists.slice(0, MAX_CHOICES)) }, signal);
   const probs = runoff["final"]?.probabilities ?? {};
   return { probs, complete };
 }
@@ -187,6 +200,7 @@ async function nextWord(
 export async function generateReply(
   message: string,
   history: HistoryTurn[] = [],
+  signal?: AbortSignal,
 ): Promise<string> {
   const lang: Language = resolveLanguage(message);
   const vocab = buildVocabulary(message, lang);
@@ -197,6 +211,7 @@ export async function generateReply(
   const genMax = LLM_MODE === "enhance" ? Math.min(MAX_WORDS, LLM_MAX_WORDS * 2) : MAX_WORDS;
 
   for (let step = 0; step < genMax; step++) {
+    signal?.throwIfAborted();
     const turns: string[] = [];
     if (lang === "id") turns.push("(Reply in Indonesian, matching the user's language.)");
     for (const h of history) {
@@ -206,7 +221,7 @@ export async function generateReply(
     turns.push(`Jev: ${render(words)}`);
     const state = turns.join("\n");
 
-    const { probs, complete } = await nextWord(state, vocab);
+    const { probs, complete } = await nextWord(state, vocab, signal);
     if (Object.keys(probs).length === 0) break;
 
     const alnumCount = words.filter((w) => /[a-z0-9]/i.test(w)).length;

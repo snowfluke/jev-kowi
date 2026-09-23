@@ -49,6 +49,8 @@ bun run typecheck
 
 Mention jev or reply to jev's messages. Replies only — it won't respond to messages that don't involve it.
 
+Send a follow-up while Jev is still thinking and the stale run is dropped — latest message wins, per channel. No more queued replies to messages from three minutes ago.
+
 ## LLM enhancement (optional, on by default)
 
 Tournament sampling gives Jev its charm but also its incoherence (`2 jokowi 2`). After Jev drafts a reply, a chat model rewrites it — short, same language, still silly and a little broken, but coherent and factually fixed:
