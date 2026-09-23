@@ -49,6 +49,17 @@ export const AMBIENT_CHANNEL_ID = str("JEV_AMBIENT_CHANNEL_ID", "");
 export const AMBIENT_FETCH = num("JEV_AMBIENT_FETCH", 10);
 export const AMBIENT_THRESHOLD = num("JEV_AMBIENT_THRESHOLD", 0.5);
 
+/**
+ * Optional LLM enhancement: Jev still writes the first draft
+ * (tournament sampling), then a chat model rewrites it short.
+ * - enhance (default): draft -> LLM rewrite, raw draft on failure.
+ * - off: send Jev's raw draft, no extra API call.
+ */
+export const LLM_MODE = str("JEV_LLM_MODE", "enhance").toLowerCase();
+export const LLM_MODEL = str("JEV_LLM_MODEL", "qwen/qwen3.8-27b:free");
+export const LLM_API_URL = str("JEV_LLM_API_URL", "https://openrouter.ai/api/v1/chat/completions");
+export const LLM_MAX_WORDS = num("JEV_LLM_MAX_WORDS", 20);
+
 export function assertEnv(): void {
   const missing: string[] = [];
   if (!TOKEN) missing.push("DISCORD_TOKEN_JEV");

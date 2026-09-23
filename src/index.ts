@@ -1,6 +1,7 @@
 import { Client, Events, GatewayIntentBits, Partials, type Message } from "discord.js";
 import { AMBIENT_CHANNEL_ID, MAX_HISTORY, TOKEN, assertEnv } from "./config.ts";
 import { generateReply, type HistoryTurn } from "./jev.ts";
+import { enhanceReply } from "./llm.ts";
 import { contextHistory, fetchAmbientContext, isTalkingToJev } from "./ambient.ts";
 import { vocabSizes } from "./vocab.ts";
 
@@ -111,7 +112,11 @@ async function handleReply(m: Message, content: string, history: HistoryTurn[]):
         (m.channel as { sendTyping: () => Promise<void> }).sendTyping().catch(() => {});
       }, 5_000);
     }
-    const reply = await withGenLock(() => generateReply(content, history));
+    const draft = await withGenLock(() => generateReply(content, history));
+    const reply = await enhanceReply({ message: content, history, draft });
+    if (reply !== draft) {
+      console.log(`${new Date().toISOString()} [jev] [LLM] draft="${draft}" final="${reply}"`);
+    }
     console.log(`${new Date().toISOString()} [jev] [OUT] ${reply}`);
     await m.reply({ content: reply, allowedMentions: { repliedUser: false } });
   } catch (e) {

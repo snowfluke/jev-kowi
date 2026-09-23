@@ -49,6 +49,16 @@ bun run typecheck
 
 Mention jev or reply to jev's messages. Replies only — it won't respond to messages that don't involve it.
 
+## LLM enhancement (optional, on by default)
+
+Tournament sampling gives Jev its charm but also its incoherence (`2 jokowi 2`). After Jev drafts a reply, a chat model rewrites it — short, same language, still silly and a little broken, but coherent and factually fixed:
+
+- `JEV_LLM_MODEL` (default `qwen/qwen3.8-27b:free`, free tier) — any OpenRouter chat model ID works.
+- `JEV_LLM_MAX_WORDS` (default 20) — the rewrite budget; output is defensively capped at 2x.
+- `JEV_LLM_MODE=off` — skip the LLM entirely and send Jev's raw draft.
+
+The prompt tells the model to keep Jev's voice and only fix what's wrong (e.g. Indonesia's president is Prabowo since Oct 2024, not Jokowi). Any LLM failure fails safe to the raw draft, and the log shows both (`[LLM] draft="…" final="…"`).
+
 ## Ambient channel (optional)
 
 Set `JEV_AMBIENT_CHANNEL_ID` to a channel ID and Jev will listen there unprompted:
@@ -79,7 +89,7 @@ Punctuation and digit tokens are injected automatically, so `vocab-id.txt` holds
 
 ## Cost
 
-~$0.01–0.05 per reply via OpenRouter. Tournament sampling does ~6 API calls per word.
+~$0.01–0.05 per reply via OpenRouter for the tournament sampling (~6 API calls per word). The enhancement model defaults to a free tier, so it adds latency (~seconds) but no cost.
 
 ## Vocab
 
@@ -94,6 +104,7 @@ Words can be added or removed freely — the vocab IS the content filter.
 src/
   index.ts   # discord.js client, history, mention/reply handling, gen lock
   jev.ts     # tournament sampling + reply generation
+  llm.ts     # chat-model rewrite of Jev's draft (short, same voice)
   vocab.ts   # vocab loading, ID/EN stopwords, language detection
   config.ts  # env-driven config (Bun loads .env automatically)
 vocab-en.txt
@@ -107,7 +118,7 @@ All tuning constants (`JEV_MAX_WORDS`, `JEV_STOP_THRESHOLD`, penalties, …) can
 - By default the bot only reads messages that mention it or reply to it. Nothing else is read or stored.
 - If `JEV_AMBIENT_CHANNEL_ID` is set, the bot additionally reads recent non-bot messages in that one channel to decide whether the latest message is addressed to it. No other channel is ever scanned.
 - Mention/reply/ambient content is kept in memory (last 3 user messages per channel) to build conversational context, and is wiped on restart. It is never written to disk, never sold, and never shared except as follows.
-- To generate a reply, your message plus recent context is sent to OpenRouter (`~typesafe/jev-latest`). OpenRouter's own privacy policy and retention apply to that request.
+- To generate a reply, your message plus recent context is sent to OpenRouter (`~typesafe/jev-latest` for the draft, plus the `JEV_LLM_MODEL` chat model for the rewrite). OpenRouter's own privacy policy and retention apply to those requests.
 - No analytics, no tracking, no DMs unless you message the bot first. Ask the operator to wipe in-memory history any time.
 
 ## Terms of service
